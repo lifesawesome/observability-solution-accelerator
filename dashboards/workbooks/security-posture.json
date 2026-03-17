@@ -1,0 +1,113 @@
+{
+  "version": "Notebook/1.0",
+  "items": [
+    {
+      "type": 1,
+      "content": {
+        "json": "# Security Posture\n\nMicrosoft Sentinel incidents, alert severity distribution, MITRE ATT&CK coverage, and UEBA anomaly trends."
+      },
+      "name": "header"
+    },
+    {
+      "type": 9,
+      "content": {
+        "version": "KqlParameterItem/1.0",
+        "parameters": [
+          {
+            "id": "timeRange",
+            "type": 4,
+            "label": "Time Range",
+            "value": { "durationMs": 2592000000 }
+          }
+        ]
+      },
+      "name": "parameters"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Incident summary tiles\nSecurityIncident\n| where TimeGenerated {timeRange}\n| summarize\n    Total = count(),\n    Open = countif(Status == 'New' or Status == 'Active'),\n    Closed = countif(Status == 'Closed'),\n    High = countif(Severity == 'High'),\n    Critical = countif(Severity == 'Critical' or Severity == 'Informational')\n",
+        "size": 4,
+        "title": "Sentinel Incident Summary",
+        "visualization": "tiles"
+      },
+      "name": "incident-tiles"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Incidents by severity over time\nSecurityIncident\n| where TimeGenerated {timeRange}\n| summarize Count = count() by Severity, bin(TimeGenerated, 1d)\n| order by TimeGenerated asc\n",
+        "size": 0,
+        "title": "Incidents by Severity (Daily)",
+        "visualization": "barchart",
+        "chartSettings": {
+          "seriesLabelSettings": [
+            { "seriesName": "High", "color": "redBright" },
+            { "seriesName": "Medium", "color": "orange" },
+            { "seriesName": "Low", "color": "blue" }
+          ]
+        }
+      },
+      "name": "incidents-by-severity"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// MITRE ATT&CK technique distribution\nSecurityAlert\n| where TimeGenerated {timeRange}\n| mv-expand tactic = todynamic(Tactics)\n| summarize Count = count() by tostring(tactic)\n| order by Count desc\n",
+        "size": 0,
+        "title": "MITRE ATT&CK Tactic Distribution",
+        "visualization": "piechart"
+      },
+      "name": "mitre-tactics"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Top alerting analytics rules\nSecurityAlert\n| where TimeGenerated {timeRange}\n| summarize Count = count() by AlertName = DisplayName\n| order by Count desc\n| take 15\n",
+        "size": 0,
+        "title": "Top Triggered Analytics Rules",
+        "visualization": "table"
+      },
+      "name": "top-rules"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// UEBA anomaly timeline\nBehaviorAnalytics\n| where TimeGenerated {timeRange}\n| where ActivityInsights has 'Anomaly'\n| summarize Anomalies = count() by bin(TimeGenerated, 1d), UserPrincipalName\n| order by Anomalies desc\n| take 50\n",
+        "size": 0,
+        "title": "UEBA Anomaly Timeline",
+        "visualization": "table"
+      },
+      "name": "ueba-anomalies"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Mean Time to Triage (alert → incident)\nSecurityIncident\n| where TimeGenerated {timeRange}\n| extend AlertTime = todatetime(AdditionalData.alertProductNames)\n| where isnotempty(CreatedTime) and isnotempty(FirstActivityTime)\n| extend TriageMinutes = datetime_diff('minute', CreatedTime, FirstActivityTime)\n| summarize AvgTriage = avg(TriageMinutes), MedianTriage = percentile(TriageMinutes, 50)\n",
+        "size": 4,
+        "title": "Mean Time to Triage",
+        "visualization": "tiles"
+      },
+      "name": "triage-time"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Failed sign-in heatmap\nSigninLogs\n| where TimeGenerated {timeRange}\n| where ResultType != '0'\n| summarize FailedAttempts = count() by UserPrincipalName, IPAddress, Location\n| order by FailedAttempts desc\n| take 25\n",
+        "size": 0,
+        "title": "Failed Sign-In Sources (Top 25)",
+        "visualization": "table"
+      },
+      "name": "failed-signins"
+    }
+  ],
+  "fallbackResourceIds": [],
+  "$schema": "https://github.com/Microsoft/Application-Insights-Workbooks/blob/master/schema/workbook.json"
+}

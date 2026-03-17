@@ -1,0 +1,27 @@
+subscription_id     = "00000000-0000-0000-0000-000000000000"
+customer_name       = "marathon"
+location            = "eastus2"
+resource_group_name = "rg-marathon-obs"
+
+# Log Analytics
+workspace_sku            = "PerGB2018"
+workspace_retention_days = 90
+
+# Feature toggles
+enable_sentinel              = true
+enable_iot_hub               = true
+enable_network_observability = true
+enable_lighthouse            = false
+
+# Application Insights - one instance per app
+app_insights_apps = ["webapp", "api", "worker"]
+
+# Alerts
+alert_email_recipients = ["ops-team@example.com"]
+# servicenow_webhook_uri = "https://instance.service-now.com/api/..."
+
+# Tags
+tags = {
+  environment = "production"
+  managed_by  = "observability-accelerator"
+}

@@ -1,0 +1,95 @@
+{
+  "version": "Notebook/1.0",
+  "items": [
+    {
+      "type": 1,
+      "content": {
+        "json": "# Cost & Usage\n\nLog Analytics workspace ingestion, data retention costs, Application Insights consumption, and optimization opportunities."
+      },
+      "name": "header"
+    },
+    {
+      "type": 9,
+      "content": {
+        "version": "KqlParameterItem/1.0",
+        "parameters": [
+          {
+            "id": "timeRange",
+            "type": 4,
+            "label": "Time Range",
+            "value": { "durationMs": 2592000000 }
+          }
+        ]
+      },
+      "name": "parameters"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Daily ingestion volume (GB)\nUsage\n| where TimeGenerated {timeRange}\n| where IsBillable == true\n| summarize IngestedGB = sum(Quantity) / 1000.0 by bin(TimeGenerated, 1d)\n| order by TimeGenerated asc\n",
+        "size": 0,
+        "title": "Daily Billable Ingestion (GB)",
+        "visualization": "barchart"
+      },
+      "name": "daily-ingestion"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Ingestion by data type (top 15)\nUsage\n| where TimeGenerated {timeRange}\n| where IsBillable == true\n| summarize IngestedGB = sum(Quantity) / 1000.0 by DataType\n| order by IngestedGB desc\n| take 15\n",
+        "size": 0,
+        "title": "Ingestion by Data Type (Top 15)",
+        "visualization": "piechart"
+      },
+      "name": "ingestion-by-type"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Ingestion by computer (top 20 talkers)\nUsage\n| where TimeGenerated {timeRange}\n| where IsBillable == true\n| extend Computer = tostring(split(_ResourceId, '/')[(-1)])\n| summarize IngestedGB = sum(Quantity) / 1000.0 by Computer\n| order by IngestedGB desc\n| take 20\n",
+        "size": 0,
+        "title": "Top 20 Data Sources by Volume",
+        "visualization": "table"
+      },
+      "name": "top-talkers"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Workspace commitment tier utilization\nUsage\n| where TimeGenerated > ago(1d)\n| where IsBillable == true\n| summarize DailyIngestGB = sum(Quantity) / 1000.0\n| extend\n    CommitmentTier100 = iif(DailyIngestGB >= 100, 'Eligible', 'Under'),\n    CommitmentTier200 = iif(DailyIngestGB >= 200, 'Eligible', 'Under'),\n    CommitmentTier300 = iif(DailyIngestGB >= 300, 'Eligible', 'Under'),\n    CommitmentTier500 = iif(DailyIngestGB >= 500, 'Eligible', 'Under')\n",
+        "size": 4,
+        "title": "Commitment Tier Eligibility (Last 24h)",
+        "visualization": "tiles"
+      },
+      "name": "commitment-tier"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Tables with basic log potential (low query, high volume)\nUsage\n| where TimeGenerated {timeRange}\n| where IsBillable == true\n| summarize IngestedGB = sum(Quantity) / 1000.0, QueryCount = 0 by DataType\n| where IngestedGB > 1\n| order by IngestedGB desc\n| project DataType, IngestedGB, Recommendation = 'Evaluate for Basic Logs tier'\n",
+        "size": 0,
+        "title": "Basic Logs Candidates (High Volume Tables)",
+        "visualization": "table"
+      },
+      "name": "basic-logs-candidates"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// App Insights sampling effectiveness\nAppRequests\n| where TimeGenerated {timeRange}\n| summarize\n    SampledCount = count(),\n    EstimatedTotal = sum(ItemCount)\n  by bin(TimeGenerated, 1h)\n| extend SamplingRatio = round(toreal(SampledCount) / toreal(EstimatedTotal) * 100, 2)\n| order by TimeGenerated asc\n",
+        "size": 0,
+        "title": "App Insights Sampling Effectiveness",
+        "visualization": "linechart"
+      },
+      "name": "sampling-effectiveness"
+    }
+  ],
+  "fallbackResourceIds": [],
+  "$schema": "https://github.com/Microsoft/Application-Insights-Workbooks/blob/master/schema/workbook.json"
+}

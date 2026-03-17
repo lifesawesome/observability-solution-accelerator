@@ -1,0 +1,130 @@
+{
+  "version": "Notebook/1.0",
+  "items": [
+    {
+      "type": 1,
+      "content": {
+        "json": "# MTTI / MTTR Dashboard\n\nMean Time to Identify and Mean Time to Resolve — the two north-star KPIs for this accelerator.\n\n> This workbook expects a ServiceNow incident export table (`ServiceNowIncidents_CL`) synced to Log Analytics via Logic App or Data Connector."
+      },
+      "name": "header"
+    },
+    {
+      "type": 9,
+      "content": {
+        "version": "KqlParameterItem/1.0",
+        "parameters": [
+          {
+            "id": "timeRange",
+            "type": 4,
+            "typeSettings": {
+              "selectableValues": [
+                { "durationMs": 3600000 },
+                { "durationMs": 86400000 },
+                { "durationMs": 604800000 },
+                { "durationMs": 2592000000 }
+              ],
+              "allowCustom": true
+            },
+            "label": "Time Range",
+            "value": { "durationMs": 2592000000 }
+          },
+          {
+            "id": "severity",
+            "type": 2,
+            "multiSelect": true,
+            "label": "Severity",
+            "query": "ServiceNowIncidents_CL | distinct Severity_s",
+            "value": [ "value::all" ]
+          }
+        ]
+      },
+      "name": "parameters"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Overall MTTI & MTTR tiles\nServiceNowIncidents_CL\n| where TimeGenerated {timeRange}\n| where Severity_s in ({severity})\n| extend MTTI_min = datetime_diff('minute', IdentifiedTime_t, CreatedTime_t)\n| extend MTTR_min = datetime_diff('minute', ResolvedTime_t, CreatedTime_t)\n| summarize\n    AvgMTTI = avg(MTTI_min),\n    MedianMTTI = percentile(MTTI_min, 50),\n    AvgMTTR = avg(MTTR_min),\n    MedianMTTR = percentile(MTTR_min, 50),\n    TotalIncidents = count()\n",
+        "size": 4,
+        "title": "Summary Tiles",
+        "visualization": "tiles",
+        "tileSettings": {
+          "titleContent": { "columnMatch": "Column1" },
+          "leftContent": { "columnMatch": "Column2", "formatter": 12 }
+        }
+      },
+      "name": "summary-tiles"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// MTTI trend over time (daily)\nServiceNowIncidents_CL\n| where TimeGenerated {timeRange}\n| where Severity_s in ({severity})\n| extend MTTI_min = datetime_diff('minute', IdentifiedTime_t, CreatedTime_t)\n| summarize AvgMTTI = avg(MTTI_min) by bin(CreatedTime_t, 1d)\n| order by CreatedTime_t asc\n",
+        "size": 0,
+        "title": "MTTI Trend (Daily Avg, Minutes)",
+        "visualization": "linechart",
+        "chartSettings": {
+          "xAxis": "CreatedTime_t",
+          "yAxis": [ "AvgMTTI" ],
+          "seriesLabelSettings": [
+            { "seriesName": "AvgMTTI", "label": "Avg MTTI (min)" }
+          ]
+        }
+      },
+      "name": "mtti-trend"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// MTTR trend over time (daily)\nServiceNowIncidents_CL\n| where TimeGenerated {timeRange}\n| where Severity_s in ({severity})\n| extend MTTR_min = datetime_diff('minute', ResolvedTime_t, CreatedTime_t)\n| summarize AvgMTTR = avg(MTTR_min) by bin(CreatedTime_t, 1d)\n| order by CreatedTime_t asc\n",
+        "size": 0,
+        "title": "MTTR Trend (Daily Avg, Minutes)",
+        "visualization": "linechart",
+        "chartSettings": {
+          "xAxis": "CreatedTime_t",
+          "yAxis": [ "AvgMTTR" ],
+          "seriesLabelSettings": [
+            { "seriesName": "AvgMTTR", "label": "Avg MTTR (min)" }
+          ]
+        }
+      },
+      "name": "mttr-trend"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// MTTI / MTTR by Severity\nServiceNowIncidents_CL\n| where TimeGenerated {timeRange}\n| extend MTTI_min = datetime_diff('minute', IdentifiedTime_t, CreatedTime_t)\n| extend MTTR_min = datetime_diff('minute', ResolvedTime_t, CreatedTime_t)\n| summarize\n    AvgMTTI = avg(MTTI_min),\n    AvgMTTR = avg(MTTR_min),\n    Incidents = count()\n  by Severity_s\n| order by Severity_s asc\n",
+        "size": 0,
+        "title": "MTTI / MTTR by Severity",
+        "visualization": "table"
+      },
+      "name": "by-severity"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Top 10 longest-running incidents\nServiceNowIncidents_CL\n| where TimeGenerated {timeRange}\n| where Severity_s in ({severity})\n| extend MTTR_min = datetime_diff('minute', ResolvedTime_t, CreatedTime_t)\n| top 10 by MTTR_min desc\n| project IncidentNumber_s, ShortDescription_s, Severity_s, MTTR_min, AssignmentGroup_s\n",
+        "size": 0,
+        "title": "Top 10 Longest-Running Incidents",
+        "visualization": "table"
+      },
+      "name": "top-outliers"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Auto-remediated vs manual incidents\nServiceNowIncidents_CL\n| where TimeGenerated {timeRange}\n| where Severity_s in ({severity})\n| extend IsAutoRemediated = iif(CloseNotes_s has 'auto-remediated' or CloseNotes_s has 'runbook', 'Auto-Remediated', 'Manual')\n| summarize Count = count() by IsAutoRemediated\n",
+        "size": 0,
+        "title": "Auto-Remediated vs Manual Resolution",
+        "visualization": "piechart"
+      },
+      "name": "auto-remediation-ratio"
+    }
+  ],
+  "fallbackResourceIds": [],
+  "$schema": "https://github.com/Microsoft/Application-Insights-Workbooks/blob/master/schema/workbook.json"
+}

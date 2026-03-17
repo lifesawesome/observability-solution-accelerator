@@ -1,0 +1,116 @@
+{
+  "version": "Notebook/1.0",
+  "items": [
+    {
+      "type": 1,
+      "content": {
+        "json": "# Application Performance\n\nRequest rates, response times, failure rates, dependency health, and exception analysis from Application Insights."
+      },
+      "name": "header"
+    },
+    {
+      "type": 9,
+      "content": {
+        "version": "KqlParameterItem/1.0",
+        "parameters": [
+          {
+            "id": "timeRange",
+            "type": 4,
+            "label": "Time Range",
+            "value": { "durationMs": 86400000 }
+          },
+          {
+            "id": "appName",
+            "type": 2,
+            "label": "Application",
+            "query": "AppRequests | distinct AppRoleName",
+            "value": [ "value::all" ]
+          }
+        ]
+      },
+      "name": "parameters"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Request volume, avg duration, failure rate tiles\nAppRequests\n| where TimeGenerated {timeRange}\n| where AppRoleName in ({appName}) or '*' in ({appName})\n| summarize\n    Requests = count(),\n    AvgDuration_ms = avg(DurationMs),\n    P95Duration_ms = percentile(DurationMs, 95),\n    FailureRate = round(100.0 * countif(Success == false) / count(), 2)\n",
+        "size": 4,
+        "title": "Key Application Metrics",
+        "visualization": "tiles"
+      },
+      "name": "app-tiles"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Request rate & failure rate over time\nAppRequests\n| where TimeGenerated {timeRange}\n| where AppRoleName in ({appName}) or '*' in ({appName})\n| summarize Requests = count(), Failures = countif(Success == false) by bin(TimeGenerated, 5m)\n| extend FailureRate = round(100.0 * Failures / Requests, 2)\n| order by TimeGenerated asc\n",
+        "size": 0,
+        "title": "Request Rate & Failure Rate (5m bins)",
+        "visualization": "linechart",
+        "chartSettings": {
+          "yAxis": [ "Requests", "FailureRate" ]
+        }
+      },
+      "name": "request-rate-trend"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Response time percentiles over time\nAppRequests\n| where TimeGenerated {timeRange}\n| where AppRoleName in ({appName}) or '*' in ({appName})\n| summarize\n    P50 = percentile(DurationMs, 50),\n    P90 = percentile(DurationMs, 90),\n    P99 = percentile(DurationMs, 99)\n  by bin(TimeGenerated, 5m)\n| order by TimeGenerated asc\n",
+        "size": 0,
+        "title": "Response Time Percentiles (ms)",
+        "visualization": "linechart"
+      },
+      "name": "response-time-percentiles"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Slowest operations (avg > 1s)\nAppRequests\n| where TimeGenerated {timeRange}\n| where AppRoleName in ({appName}) or '*' in ({appName})\n| summarize AvgDuration = avg(DurationMs), Count = count() by Name\n| where AvgDuration > 1000\n| order by AvgDuration desc\n| take 20\n",
+        "size": 0,
+        "title": "Slowest Operations (Avg > 1s)",
+        "visualization": "table"
+      },
+      "name": "slow-operations"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Dependency health\nAppDependencies\n| where TimeGenerated {timeRange}\n| where AppRoleName in ({appName}) or '*' in ({appName})\n| summarize\n    Calls = count(),\n    AvgDuration = avg(DurationMs),\n    FailureRate = round(100.0 * countif(Success == false) / count(), 2)\n  by Type, Target\n| order by FailureRate desc\n",
+        "size": 0,
+        "title": "Dependency Health",
+        "visualization": "table"
+      },
+      "name": "dependency-health"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Top exceptions\nAppExceptions\n| where TimeGenerated {timeRange}\n| where AppRoleName in ({appName}) or '*' in ({appName})\n| summarize Count = count() by ExceptionType = tostring(split(ProblemId, ' at ')[0])\n| order by Count desc\n| take 15\n",
+        "size": 0,
+        "title": "Top Exceptions",
+        "visualization": "barchart"
+      },
+      "name": "top-exceptions"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Availability / SLI\nAppRequests\n| where TimeGenerated {timeRange}\n| where AppRoleName in ({appName}) or '*' in ({appName})\n| summarize\n    Total = count(),\n    Successful = countif(Success == true)\n  by bin(TimeGenerated, 1h)\n| extend Availability = round(100.0 * Successful / Total, 3)\n| order by TimeGenerated asc\n",
+        "size": 0,
+        "title": "Hourly Availability (SLI)",
+        "visualization": "linechart"
+      },
+      "name": "availability-sli"
+    }
+  ],
+  "fallbackResourceIds": [],
+  "$schema": "https://github.com/Microsoft/Application-Insights-Workbooks/blob/master/schema/workbook.json"
+}

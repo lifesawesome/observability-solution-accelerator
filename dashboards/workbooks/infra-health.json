@@ -1,0 +1,113 @@
+{
+  "version": "Notebook/1.0",
+  "items": [
+    {
+      "type": 1,
+      "content": {
+        "json": "# Infrastructure Health\n\nVM availability, heartbeat status, disk/memory/CPU utilization, and Azure resource health."
+      },
+      "name": "header"
+    },
+    {
+      "type": 9,
+      "content": {
+        "version": "KqlParameterItem/1.0",
+        "parameters": [
+          {
+            "id": "timeRange",
+            "type": 4,
+            "label": "Time Range",
+            "value": { "durationMs": 86400000 }
+          },
+          {
+            "id": "subscription",
+            "type": 6,
+            "multiSelect": true,
+            "label": "Subscription",
+            "value": [ "value::all" ]
+          }
+        ]
+      },
+      "name": "parameters"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// VM Heartbeat Status\nHeartbeat\n| where TimeGenerated {timeRange}\n| summarize LastHeartbeat = max(TimeGenerated) by Computer, ResourceGroup, _ResourceId\n| extend Status = iif(LastHeartbeat < ago(5m), 'Offline', 'Online')\n| summarize Online = countif(Status == 'Online'), Offline = countif(Status == 'Offline')\n",
+        "size": 4,
+        "title": "VM Availability Summary",
+        "visualization": "tiles"
+      },
+      "name": "vm-availability-tiles"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Offline VMs (no heartbeat in 5 minutes)\nHeartbeat\n| where TimeGenerated {timeRange}\n| summarize LastHeartbeat = max(TimeGenerated) by Computer, ResourceGroup, OSType, _ResourceId\n| where LastHeartbeat < ago(5m)\n| extend MinutesSinceLastBeat = datetime_diff('minute', now(), LastHeartbeat)\n| order by MinutesSinceLastBeat desc\n| project Computer, ResourceGroup, OSType, LastHeartbeat, MinutesSinceLastBeat\n",
+        "size": 0,
+        "title": "Offline VMs",
+        "visualization": "table"
+      },
+      "name": "offline-vms"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// CPU Utilization by VM (avg, p95)\nPerf\n| where TimeGenerated {timeRange}\n| where ObjectName == 'Processor' and CounterName == '% Processor Time' and InstanceName == '_Total'\n| summarize AvgCPU = avg(CounterValue), P95CPU = percentile(CounterValue, 95) by Computer\n| order by P95CPU desc\n",
+        "size": 0,
+        "title": "CPU Utilization by VM",
+        "visualization": "table"
+      },
+      "name": "cpu-utilization"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Memory Available (MB) - Bottom 10\nPerf\n| where TimeGenerated {timeRange}\n| where ObjectName == 'Memory' and CounterName == 'Available MBytes'\n| summarize AvgAvailableMB = avg(CounterValue) by Computer\n| order by AvgAvailableMB asc\n| take 10\n",
+        "size": 0,
+        "title": "Bottom 10 VMs by Available Memory",
+        "visualization": "barchart"
+      },
+      "name": "memory-bottom10"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Disk Free Space % by VM\nPerf\n| where TimeGenerated {timeRange}\n| where ObjectName == 'LogicalDisk' and CounterName == '% Free Space' and InstanceName != '_Total'\n| summarize AvgFreePercent = avg(CounterValue) by Computer, InstanceName\n| where AvgFreePercent < 20\n| order by AvgFreePercent asc\n",
+        "size": 0,
+        "title": "Low Disk Space (< 20% Free)",
+        "visualization": "table"
+      },
+      "name": "disk-space"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// CPU trend (aggregated hourly)\nPerf\n| where TimeGenerated {timeRange}\n| where ObjectName == 'Processor' and CounterName == '% Processor Time' and InstanceName == '_Total'\n| summarize AvgCPU = avg(CounterValue) by bin(TimeGenerated, 1h)\n| order by TimeGenerated asc\n",
+        "size": 0,
+        "title": "Aggregate CPU Trend",
+        "visualization": "linechart"
+      },
+      "name": "cpu-trend"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Azure Resource Health events\nAzureActivity\n| where TimeGenerated {timeRange}\n| where CategoryValue == 'ResourceHealth'\n| project TimeGenerated, Resource = _ResourceId, Level, OperationNameValue, Properties = Properties_d\n| order by TimeGenerated desc\n| take 50\n",
+        "size": 0,
+        "title": "Recent Resource Health Events",
+        "visualization": "table"
+      },
+      "name": "resource-health"
+    }
+  ],
+  "fallbackResourceIds": [],
+  "$schema": "https://github.com/Microsoft/Application-Insights-Workbooks/blob/master/schema/workbook.json"
+}
