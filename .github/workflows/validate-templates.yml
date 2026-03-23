@@ -1,0 +1,106 @@
+name: Validate Workbooks & Templates
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'dashboards/**'
+      - 'automation/logic-apps/**'
+      - 'policies/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'dashboards/**'
+      - 'automation/logic-apps/**'
+      - 'policies/**'
+
+permissions:
+  contents: read
+
+jobs:
+  validate-json:
+    name: Validate JSON Templates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate Workbook JSON
+        run: |
+          echo "=== Validating Azure Workbooks ==="
+          failed=0
+          for f in dashboards/workbooks/*.json; do
+            if python3 -m json.tool "$f" > /dev/null 2>&1; then
+              echo "✓ $f"
+            else
+              echo "✗ $f — INVALID JSON"
+              failed=1
+            fi
+          done
+          [ $failed -eq 0 ] || exit 1
+
+      - name: Validate Logic App JSON
+        run: |
+          echo "=== Validating Logic App Templates ==="
+          failed=0
+          for f in automation/logic-apps/*.json; do
+            if python3 -m json.tool "$f" > /dev/null 2>&1; then
+              echo "✓ $f"
+            else
+              echo "✗ $f — INVALID JSON"
+              failed=1
+            fi
+          done
+          [ $failed -eq 0 ] || exit 1
+
+      - name: Validate Policy Definitions JSON
+        run: |
+          echo "=== Validating Policy Definitions ==="
+          failed=0
+          for f in policies/*.json; do
+            if python3 -m json.tool "$f" > /dev/null 2>&1; then
+              echo "✓ $f"
+            else
+              echo "✗ $f — INVALID JSON"
+              failed=1
+            fi
+          done
+          [ $failed -eq 0 ] || exit 1
+
+      - name: Validate Workbook schema compliance
+        run: |
+          echo "=== Checking workbook structure ==="
+          for f in dashboards/workbooks/*.json; do
+            python3 -c "
+          import json, sys
+          with open('$f') as fh:
+              wb = json.load(fh)
+          required = ['version', 'items']
+          missing = [k for k in required if k not in wb]
+          if missing:
+              print(f'✗ $f — missing keys: {missing}')
+              sys.exit(1)
+          print(f'✓ $f — schema OK')
+          "
+          done
+
+      - name: Validate Logic App schema compliance
+        run: |
+          echo "=== Checking Logic App schema ==="
+          for f in automation/logic-apps/*.json; do
+            python3 -c "
+          import json, sys
+          with open('$f') as fh:
+              la = json.load(fh)
+          if '\$schema' not in la and 'triggers' not in la:
+              print(f'✗ $f — missing schema or triggers')
+              sys.exit(1)
+          if 'triggers' not in la:
+              print(f'✗ $f — missing triggers section')
+              sys.exit(1)
+          if 'actions' not in la:
+              print(f'✗ $f — missing actions section')
+              sys.exit(1)
+          print(f'✓ $f — schema OK')
+          "
+          done

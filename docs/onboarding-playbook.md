@@ -82,7 +82,7 @@ az login --tenant <customer-tenant-id>
 az account set --subscription <customer-subscription-id>
 
 # Create resource group
-az group create --name rg-<customer>-observability --location eastus2
+az group create --name rg-<customer>-observability --location westus2
 ```
 
 ### 2.2 Deploy Core Infrastructure
@@ -121,7 +121,7 @@ az policy remediation create \
 # Generate Arc onboarding script
 az connectedmachine generate-script \
   --resource-group rg-<customer>-observability \
-  --location eastus2 \
+  --location westus2 \
   --subscription-id <sub-id>
 
 # Run the generated script on each on-prem server

@@ -14,20 +14,20 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "vm_heartbeat" {
   enabled             = true
   tags                = var.tags
 
-  scopes                   = [var.workspace_id]
-  evaluation_frequency     = "PT5M"
-  window_duration          = "PT15M"
-  target_resource_types    = ["Microsoft.OperationalInsights/workspaces"]
+  scopes                = [var.workspace_id]
+  evaluation_frequency  = "PT5M"
+  window_duration       = "PT15M"
+  target_resource_types = ["Microsoft.OperationalInsights/workspaces"]
 
   criteria {
-    query = <<-QUERY
+    query                   = <<-QUERY
       Heartbeat
       | summarize LastHeartbeat = max(TimeGenerated) by Computer
-      | where LastHeartbeat < ago(5m)
+      | where LastHeartbeat < ago(${var.alert_thresholds.heartbeat_missing_minutes}m)
       | project Computer, LastHeartbeat, MinutesSinceHeartbeat = datetime_diff('minute', now(), LastHeartbeat)
     QUERY
-    operator             = "GreaterThan"
-    threshold            = 0
+    operator                = "GreaterThan"
+    threshold               = 0
     time_aggregation_method = "Count"
   }
 
@@ -47,21 +47,21 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "app_error_rate" {
   enabled             = true
   tags                = var.tags
 
-  scopes                   = [var.workspace_id]
-  evaluation_frequency     = "PT5M"
-  window_duration          = "PT15M"
-  target_resource_types    = ["Microsoft.OperationalInsights/workspaces"]
+  scopes                = [var.workspace_id]
+  evaluation_frequency  = "PT5M"
+  window_duration       = "PT15M"
+  target_resource_types = ["Microsoft.OperationalInsights/workspaces"]
 
   criteria {
-    query = <<-QUERY
+    query                   = <<-QUERY
       AppExceptions
       | where TimeGenerated > ago(15m)
       | summarize ExceptionCount = count() by AppRoleName, bin(TimeGenerated, 5m)
-      | where ExceptionCount > 50
+      | where ExceptionCount > ${var.alert_thresholds.app_exception_count}
       | project TimeGenerated, AppRoleName, ExceptionCount
     QUERY
-    operator             = "GreaterThan"
-    threshold            = 0
+    operator                = "GreaterThan"
+    threshold               = 0
     time_aggregation_method = "Count"
   }
 
@@ -75,29 +75,29 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "disk_space_low" {
   name                = "${var.customer_name}-disk-space-low"
   resource_group_name = var.resource_group_name
   location            = var.location
-  display_name        = "Disk Space Below 10% Free"
-  description         = "Alerts when any disk drops below 10% free space"
+  display_name        = "Disk Space Below ${var.alert_thresholds.disk_free_percent}% Free"
+  description         = "Alerts when any disk drops below ${var.alert_thresholds.disk_free_percent}% free space"
   severity            = 2
   enabled             = true
   tags                = var.tags
 
-  scopes                   = [var.workspace_id]
-  evaluation_frequency     = "PT15M"
-  window_duration          = "PT30M"
-  target_resource_types    = ["Microsoft.OperationalInsights/workspaces"]
+  scopes                = [var.workspace_id]
+  evaluation_frequency  = "PT15M"
+  window_duration       = "PT30M"
+  target_resource_types = ["Microsoft.OperationalInsights/workspaces"]
 
   criteria {
-    query = <<-QUERY
+    query                   = <<-QUERY
       Perf
       | where TimeGenerated > ago(30m)
       | where ObjectName == "LogicalDisk" and CounterName == "% Free Space"
       | where InstanceName != "_Total" and InstanceName != "HarddiskVolume1"
       | summarize AvgFreeSpace = avg(CounterValue) by Computer, InstanceName
-      | where AvgFreeSpace < 10
+      | where AvgFreeSpace < ${var.alert_thresholds.disk_free_percent}
       | project Computer, InstanceName, AvgFreeSpace
     QUERY
-    operator             = "GreaterThan"
-    threshold            = 0
+    operator                = "GreaterThan"
+    threshold               = 0
     time_aggregation_method = "Count"
   }
 
@@ -112,27 +112,27 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "memory_pressure" {
   resource_group_name = var.resource_group_name
   location            = var.location
   display_name        = "High Memory Usage Detected"
-  description         = "Alerts when committed memory exceeds 90%"
+  description         = "Alerts when committed memory exceeds ${var.alert_thresholds.memory_committed_percent}%"
   severity            = 2
   enabled             = true
   tags                = var.tags
 
-  scopes                   = [var.workspace_id]
-  evaluation_frequency     = "PT5M"
-  window_duration          = "PT15M"
-  target_resource_types    = ["Microsoft.OperationalInsights/workspaces"]
+  scopes                = [var.workspace_id]
+  evaluation_frequency  = "PT5M"
+  window_duration       = "PT15M"
+  target_resource_types = ["Microsoft.OperationalInsights/workspaces"]
 
   criteria {
-    query = <<-QUERY
+    query                   = <<-QUERY
       Perf
       | where TimeGenerated > ago(15m)
       | where ObjectName == "Memory" and CounterName == "% Committed Bytes In Use"
       | summarize AvgMemory = avg(CounterValue) by Computer
-      | where AvgMemory > 90
+      | where AvgMemory > ${var.alert_thresholds.memory_committed_percent}
       | project Computer, AvgMemory
     QUERY
-    operator             = "GreaterThan"
-    threshold            = 0
+    operator                = "GreaterThan"
+    threshold               = 0
     time_aggregation_method = "Count"
   }
 
@@ -152,13 +152,13 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "cpu_anomaly" {
   enabled             = true
   tags                = var.tags
 
-  scopes                   = [var.workspace_id]
-  evaluation_frequency     = "PT30M"
-  window_duration          = "PT6H"
-  target_resource_types    = ["Microsoft.OperationalInsights/workspaces"]
+  scopes                = [var.workspace_id]
+  evaluation_frequency  = "PT30M"
+  window_duration       = "PT6H"
+  target_resource_types = ["Microsoft.OperationalInsights/workspaces"]
 
   criteria {
-    query = <<-QUERY
+    query                   = <<-QUERY
       Perf
       | where TimeGenerated > ago(6h)
       | where ObjectName == "Processor" and CounterName == "% Processor Time" and InstanceName == "_Total"
@@ -166,11 +166,11 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "cpu_anomaly" {
       | make-series CPUSeries = avg(AvgCPU) on TimeGenerated step 5m by Computer
       | extend (anomalies, score, baseline) = series_decompose_anomalies(CPUSeries, 1.5, -1, 'linefit')
       | mv-expand TimeGenerated to typeof(datetime), CPUSeries to typeof(double), anomalies to typeof(int), score to typeof(double)
-      | where anomalies == 1 and score > 2.0
+      | where anomalies == 1 and score > ${var.alert_thresholds.cpu_anomaly_score}
       | project TimeGenerated, Computer, CPUSeries, score
     QUERY
-    operator             = "GreaterThan"
-    threshold            = 0
+    operator                = "GreaterThan"
+    threshold               = 0
     time_aggregation_method = "Count"
   }
 

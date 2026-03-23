@@ -41,23 +41,23 @@ resource "azurerm_eventhub" "device_telemetry" {
 }
 
 resource "azurerm_eventhub_authorization_rule" "iot_send" {
-  name         = "iot-hub-send"
-  eventhub_name = azurerm_eventhub.device_telemetry.name
-  namespace_name = azurerm_eventhub_namespace.iot_telemetry.name
+  name                = "iot-hub-send"
+  eventhub_name       = azurerm_eventhub.device_telemetry.name
+  namespace_name      = azurerm_eventhub_namespace.iot_telemetry.name
   resource_group_name = var.resource_group_name
-  send   = true
-  listen = false
-  manage = false
+  send                = true
+  listen              = false
+  manage              = false
 }
 
 resource "azurerm_eventhub_authorization_rule" "fabric_listen" {
-  name         = "fabric-listen"
-  eventhub_name = azurerm_eventhub.device_telemetry.name
-  namespace_name = azurerm_eventhub_namespace.iot_telemetry.name
+  name                = "fabric-listen"
+  eventhub_name       = azurerm_eventhub.device_telemetry.name
+  namespace_name      = azurerm_eventhub_namespace.iot_telemetry.name
   resource_group_name = var.resource_group_name
-  send   = false
-  listen = true
-  manage = false
+  send                = false
+  listen              = true
+  manage              = false
 }
 
 # ============================================================================

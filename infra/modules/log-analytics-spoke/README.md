@@ -12,7 +12,7 @@ module "log_analytics" {
   source = "./modules/log-analytics-spoke"
 
   resource_group_name = "rg-customer-obs"
-  location            = "eastus2"
+  location            = "westus2"
   workspace_name      = "la-customer-obs"
   sku                 = "PerGB2018"
   retention_in_days   = 90

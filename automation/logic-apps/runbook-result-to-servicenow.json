@@ -1,0 +1,156 @@
+{
+  "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "Updates a ServiceNow incident with Azure Automation runbook execution results. Triggered by an Automation webhook when a runbook completes. Adds work notes to the correlated incident with the remediation outcome."
+  },
+  "parameters": {
+    "servicenow_instance": {
+      "type": "String"
+    },
+    "servicenow_client_id": {
+      "type": "SecureString"
+    },
+    "servicenow_client_secret": {
+      "type": "SecureString"
+    },
+    "servicenow_username": {
+      "type": "SecureString"
+    },
+    "servicenow_password": {
+      "type": "SecureString"
+    }
+  },
+  "triggers": {
+    "When_runbook_completes": {
+      "type": "Request",
+      "kind": "Http",
+      "inputs": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "jobId": { "type": "string" },
+            "runbookName": { "type": "string" },
+            "status": { "type": "string" },
+            "output": { "type": "string" },
+            "startTime": { "type": "string" },
+            "endTime": { "type": "string" },
+            "incidentNumber": { "type": "string" },
+            "incidentSysId": { "type": "string" },
+            "targetResource": { "type": "string" }
+          }
+        }
+      }
+    }
+  },
+  "actions": {
+    "Parse_runbook_result": {
+      "type": "Compose",
+      "inputs": {
+        "runbook": "@triggerBody()?['runbookName']",
+        "status": "@triggerBody()?['status']",
+        "output": "@triggerBody()?['output']",
+        "incidentNumber": "@triggerBody()?['incidentNumber']",
+        "incidentSysId": "@triggerBody()?['incidentSysId']",
+        "target": "@triggerBody()?['targetResource']",
+        "duration": "@triggerBody()?['endTime']"
+      },
+      "runAfter": {}
+    },
+    "Check_incident_reference": {
+      "type": "If",
+      "expression": {
+        "and": [
+          {
+            "not": {
+              "equals": ["@outputs('Parse_runbook_result')['incidentSysId']", ""]
+            }
+          },
+          {
+            "not": {
+              "equals": ["@outputs('Parse_runbook_result')['incidentSysId']", null]
+            }
+          }
+        ]
+      },
+      "actions": {
+        "Get_ServiceNow_OAuth_token": {
+          "type": "Http",
+          "inputs": {
+            "method": "POST",
+            "uri": "https://@{parameters('servicenow_instance')}.service-now.com/oauth_token.do",
+            "headers": {
+              "Content-Type": "application/x-www-form-urlencoded"
+            },
+            "body": "grant_type=password&client_id=@{parameters('servicenow_client_id')}&client_secret=@{parameters('servicenow_client_secret')}&username=@{parameters('servicenow_username')}&password=@{parameters('servicenow_password')}"
+          },
+          "runtimeConfiguration": {
+            "secureData": {
+              "properties": ["inputs", "outputs"]
+            }
+          }
+        },
+        "Build_work_notes": {
+          "type": "Compose",
+          "inputs": "[Automated Remediation]\nRunbook: @{outputs('Parse_runbook_result')['runbook']}\nStatus: @{outputs('Parse_runbook_result')['status']}\nTarget: @{outputs('Parse_runbook_result')['target']}\n\nOutput:\n@{outputs('Parse_runbook_result')['output']}",
+          "runAfter": {
+            "Get_ServiceNow_OAuth_token": ["Succeeded"]
+          }
+        },
+        "Determine_incident_state": {
+          "type": "Compose",
+          "inputs": "@if(equals(outputs('Parse_runbook_result')['status'], 'Completed'), 'resolved', 'in_progress')",
+          "runAfter": {
+            "Build_work_notes": ["Succeeded"]
+          }
+        },
+        "Update_ServiceNow_incident": {
+          "type": "Http",
+          "inputs": {
+            "method": "PATCH",
+            "uri": "https://@{parameters('servicenow_instance')}.service-now.com/api/now/table/incident/@{outputs('Parse_runbook_result')['incidentSysId']}",
+            "headers": {
+              "Content-Type": "application/json",
+              "Authorization": "Bearer @{body('Get_ServiceNow_OAuth_token')['access_token']}"
+            },
+            "body": {
+              "work_notes": "@{outputs('Build_work_notes')}",
+              "state": "@if(equals(outputs('Determine_incident_state'), 'resolved'), '6', '2')",
+              "close_code": "@if(equals(outputs('Determine_incident_state'), 'resolved'), 'Solved (Permanently)', '')",
+              "close_notes": "@if(equals(outputs('Determine_incident_state'), 'resolved'), concat('Auto-remediated by runbook: ', outputs('Parse_runbook_result')['runbook']), '')"
+            }
+          },
+          "runAfter": {
+            "Determine_incident_state": ["Succeeded"]
+          }
+        }
+      },
+      "else": {
+        "actions": {
+          "Log_no_incident_reference": {
+            "type": "Compose",
+            "inputs": {
+              "action": "skip_no_incident_ref",
+              "runbook": "@outputs('Parse_runbook_result')['runbook']",
+              "message": "No ServiceNow incident reference found in runbook result"
+            }
+          }
+        }
+      },
+      "runAfter": {
+        "Parse_runbook_result": ["Succeeded"]
+      }
+    },
+    "Response": {
+      "type": "Response",
+      "inputs": {
+        "statusCode": 200,
+        "body": { "status": "processed" }
+      },
+      "runAfter": {
+        "Check_incident_reference": ["Succeeded", "Skipped"]
+      }
+    }
+  },
+  "outputs": {}
+}

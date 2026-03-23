@@ -1,0 +1,220 @@
+{
+  "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "Creates a ServiceNow incident from an Azure Monitor alert webhook. Triggered by an Action Group HTTP webhook. Parses the Common Alert Schema v2 payload, maps severity, and creates an incident in ServiceNow via OAuth 2.0."
+  },
+  "parameters": {
+    "servicenow_instance": {
+      "type": "String",
+      "metadata": {
+        "description": "ServiceNow instance name (e.g., 'mycompany' for mycompany.service-now.com)"
+      }
+    },
+    "servicenow_client_id": {
+      "type": "SecureString",
+      "metadata": {
+        "description": "ServiceNow OAuth 2.0 client ID"
+      }
+    },
+    "servicenow_client_secret": {
+      "type": "SecureString",
+      "metadata": {
+        "description": "ServiceNow OAuth 2.0 client secret"
+      }
+    },
+    "servicenow_username": {
+      "type": "SecureString",
+      "metadata": {
+        "description": "ServiceNow integration user (least-privilege)"
+      }
+    },
+    "servicenow_password": {
+      "type": "SecureString",
+      "metadata": {
+        "description": "ServiceNow integration user password"
+      }
+    },
+    "teams_webhook_uri": {
+      "type": "SecureString",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Microsoft Teams incoming webhook URI for notifications (optional)"
+      }
+    }
+  },
+  "triggers": {
+    "When_alert_is_received": {
+      "type": "Request",
+      "kind": "Http",
+      "inputs": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "schemaId": { "type": "string" },
+            "data": {
+              "type": "object",
+              "properties": {
+                "essentials": {
+                  "type": "object",
+                  "properties": {
+                    "alertId": { "type": "string" },
+                    "alertRule": { "type": "string" },
+                    "severity": { "type": "string" },
+                    "monitorCondition": { "type": "string" },
+                    "monitoringService": { "type": "string" },
+                    "alertTargetIDs": { "type": "array" },
+                    "firedDateTime": { "type": "string" },
+                    "description": { "type": "string" }
+                  }
+                },
+                "alertContext": { "type": "object" }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "actions": {
+    "Parse_alert_payload": {
+      "type": "Compose",
+      "inputs": {
+        "alertId": "@triggerBody()?['data']?['essentials']?['alertId']",
+        "alertRule": "@triggerBody()?['data']?['essentials']?['alertRule']",
+        "severity": "@triggerBody()?['data']?['essentials']?['severity']",
+        "description": "@triggerBody()?['data']?['essentials']?['description']",
+        "firedDateTime": "@triggerBody()?['data']?['essentials']?['firedDateTime']",
+        "targetResource": "@first(triggerBody()?['data']?['essentials']?['alertTargetIDs'])"
+      },
+      "runAfter": {}
+    },
+    "Map_severity_to_ServiceNow": {
+      "type": "Compose",
+      "inputs": "@if(equals(outputs('Parse_alert_payload')['severity'], 'Sev0'), '1', if(equals(outputs('Parse_alert_payload')['severity'], 'Sev1'), '1', if(equals(outputs('Parse_alert_payload')['severity'], 'Sev2'), '2', if(equals(outputs('Parse_alert_payload')['severity'], 'Sev3'), '3', '3'))))",
+      "runAfter": {
+        "Parse_alert_payload": ["Succeeded"]
+      }
+    },
+    "Get_ServiceNow_OAuth_token": {
+      "type": "Http",
+      "inputs": {
+        "method": "POST",
+        "uri": "https://@{parameters('servicenow_instance')}.service-now.com/oauth_token.do",
+        "headers": {
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        "body": "grant_type=password&client_id=@{parameters('servicenow_client_id')}&client_secret=@{parameters('servicenow_client_secret')}&username=@{parameters('servicenow_username')}&password=@{parameters('servicenow_password')}"
+      },
+      "runAfter": {
+        "Map_severity_to_ServiceNow": ["Succeeded"]
+      },
+      "runtimeConfiguration": {
+        "secureData": {
+          "properties": ["inputs", "outputs"]
+        }
+      }
+    },
+    "Create_ServiceNow_incident": {
+      "type": "Http",
+      "inputs": {
+        "method": "POST",
+        "uri": "https://@{parameters('servicenow_instance')}.service-now.com/api/now/table/incident",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer @{body('Get_ServiceNow_OAuth_token')['access_token']}"
+        },
+        "body": {
+          "short_description": "[Azure Alert] @{outputs('Parse_alert_payload')['alertRule']}",
+          "description": "Azure Monitor Alert\n\nRule: @{outputs('Parse_alert_payload')['alertRule']}\nSeverity: @{outputs('Parse_alert_payload')['severity']}\nFired: @{outputs('Parse_alert_payload')['firedDateTime']}\nResource: @{outputs('Parse_alert_payload')['targetResource']}\n\n@{outputs('Parse_alert_payload')['description']}\n\nAlert ID: @{outputs('Parse_alert_payload')['alertId']}",
+          "impact": "@{outputs('Map_severity_to_ServiceNow')}",
+          "urgency": "@{outputs('Map_severity_to_ServiceNow')}",
+          "category": "Software",
+          "subcategory": "Monitoring",
+          "caller_id": "azure.monitor",
+          "assignment_group": "Cloud Operations",
+          "correlation_id": "@{outputs('Parse_alert_payload')['alertId']}"
+        }
+      },
+      "runAfter": {
+        "Get_ServiceNow_OAuth_token": ["Succeeded"]
+      }
+    },
+    "Notify_Teams": {
+      "type": "If",
+      "expression": {
+        "and": [
+          {
+            "not": {
+              "equals": ["@parameters('teams_webhook_uri')", ""]
+            }
+          }
+        ]
+      },
+      "actions": {
+        "Post_to_Teams": {
+          "type": "Http",
+          "inputs": {
+            "method": "POST",
+            "uri": "@parameters('teams_webhook_uri')",
+            "headers": {
+              "Content-Type": "application/json"
+            },
+            "body": {
+              "type": "message",
+              "attachments": [
+                {
+                  "contentType": "application/vnd.microsoft.card.adaptive",
+                  "contentUrl": null,
+                  "content": {
+                    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                    "type": "AdaptiveCard",
+                    "version": "1.4",
+                    "body": [
+                      {
+                        "type": "TextBlock",
+                        "text": "Azure Alert → ServiceNow Incident Created",
+                        "weight": "bolder",
+                        "size": "medium"
+                      },
+                      {
+                        "type": "FactSet",
+                        "facts": [
+                          { "title": "Rule:", "value": "@{outputs('Parse_alert_payload')['alertRule']}" },
+                          { "title": "Severity:", "value": "@{outputs('Parse_alert_payload')['severity']}" },
+                          { "title": "Resource:", "value": "@{outputs('Parse_alert_payload')['targetResource']}" },
+                          { "title": "Incident:", "value": "@{body('Create_ServiceNow_incident')['result']['number']}" }
+                        ]
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "else": {
+        "actions": {}
+      },
+      "runAfter": {
+        "Create_ServiceNow_incident": ["Succeeded"]
+      }
+    },
+    "Response": {
+      "type": "Response",
+      "inputs": {
+        "statusCode": 200,
+        "body": {
+          "status": "success",
+          "incidentNumber": "@{body('Create_ServiceNow_incident')['result']['number']}",
+          "incidentSysId": "@{body('Create_ServiceNow_incident')['result']['sys_id']}"
+        }
+      },
+      "runAfter": {
+        "Notify_Teams": ["Succeeded", "Skipped"]
+      }
+    }
+  },
+  "outputs": {}
+}

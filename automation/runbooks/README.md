@@ -2,15 +2,15 @@
 
 Azure Automation runbooks for L0/L1 self-healing actions triggered by alert rules.
 
-## Planned Runbooks
+## Runbooks
 
 | Runbook | Trigger | Action | Status |
 |---------|---------|--------|--------|
-| `Restart-WindowsService.ps1` | Service stopped alert | Restart the specified Windows service via Run Command | Planned |
-| `Clear-DiskSpace.ps1` | Disk > 90% alert | Delete temp files, compress old logs | Planned |
-| `Restart-VM.ps1` | Heartbeat lost > 15 min | Graceful restart via `Restart-AzVM` | Planned |
-| `Scale-UpVM.ps1` | CPU > 95% for 30 min | Resize VM to next SKU tier | Planned |
-| `Rotate-Secret.ps1` | Key Vault expiry warning | Generate new secret, update Key Vault | Planned |
+| `Restart-WindowsService.ps1` | Service stopped alert | Restart the specified Windows service via Run Command | ✅ Implemented |
+| `Clear-DiskSpace.ps1` | Disk > 90% alert | Delete temp files, compress old logs | ✅ Implemented |
+| `Restart-VM.ps1` | Heartbeat lost > 15 min | Graceful restart via `Restart-AzVM` | ✅ Implemented |
+| `Scale-UpVM.ps1` | CPU > 95% for 30 min | Resize VM to next SKU tier | ✅ Implemented |
+| `Rotate-Secret.ps1` | Key Vault expiry warning | Generate new secret, update Key Vault | ✅ Implemented |
 
 ## Architecture
 

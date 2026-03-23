@@ -1,0 +1,145 @@
+{
+  "properties": {
+    "displayName": "Enforce NSG Flow Logs",
+    "description": "Deploys NSG flow logs on all Network Security Groups to a specified storage account and optionally enables Traffic Analytics to the Log Analytics workspace.",
+    "mode": "Indexed",
+    "policyType": "Custom",
+    "metadata": {
+      "version": "1.0.0",
+      "category": "Network",
+      "source": "observability-accelerator"
+    },
+    "parameters": {
+      "effect": {
+        "type": "String",
+        "defaultValue": "DeployIfNotExists",
+        "allowedValues": ["DeployIfNotExists", "AuditIfNotExists", "Disabled"],
+        "metadata": {
+          "displayName": "Effect",
+          "description": "Enable or disable the policy"
+        }
+      },
+      "storageAccountId": {
+        "type": "String",
+        "metadata": {
+          "displayName": "Storage Account ID",
+          "description": "Full resource ID of the storage account for flow logs",
+          "assignPermissions": true
+        }
+      },
+      "logAnalyticsWorkspaceId": {
+        "type": "String",
+        "metadata": {
+          "displayName": "Log Analytics Workspace ID",
+          "description": "Full resource ID for Traffic Analytics (optional — leave empty to disable)",
+          "assignPermissions": true
+        },
+        "defaultValue": ""
+      },
+      "retentionDays": {
+        "type": "Integer",
+        "defaultValue": 90,
+        "metadata": {
+          "displayName": "Retention Days",
+          "description": "Number of days to retain flow logs"
+        }
+      },
+      "networkWatcherName": {
+        "type": "String",
+        "metadata": {
+          "displayName": "Network Watcher Name",
+          "description": "Name of the Network Watcher in the NSG's region"
+        }
+      },
+      "networkWatcherRG": {
+        "type": "String",
+        "metadata": {
+          "displayName": "Network Watcher Resource Group",
+          "description": "Resource group containing the Network Watcher"
+        }
+      }
+    },
+    "policyRule": {
+      "if": {
+        "field": "type",
+        "equals": "Microsoft.Network/networkSecurityGroups"
+      },
+      "then": {
+        "effect": "[parameters('effect')]",
+        "details": {
+          "type": "Microsoft.Network/networkWatchers/flowLogs",
+          "resourceGroupName": "[parameters('networkWatcherRG')]",
+          "name": "[concat(parameters('networkWatcherName'), '/flowlog-', field('name'))]",
+          "existenceCondition": {
+            "allOf": [
+              {
+                "field": "Microsoft.Network/networkWatchers/flowLogs/enabled",
+                "equals": "true"
+              }
+            ]
+          },
+          "roleDefinitionIds": [
+            "/providers/Microsoft.Authorization/roleDefinitions/b24988ac-6180-42a0-ab88-20f7382dd24c"
+          ],
+          "deployment": {
+            "properties": {
+              "mode": "incremental",
+              "template": {
+                "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+                "contentVersion": "1.0.0.0",
+                "parameters": {
+                  "nsgName": { "type": "string" },
+                  "nsgId": { "type": "string" },
+                  "nsgRegion": { "type": "string" },
+                  "storageAccountId": { "type": "string" },
+                  "logAnalyticsWorkspaceId": { "type": "string" },
+                  "retentionDays": { "type": "int" },
+                  "networkWatcherName": { "type": "string" },
+                  "networkWatcherRG": { "type": "string" }
+                },
+                "resources": [
+                  {
+                    "type": "Microsoft.Network/networkWatchers/flowLogs",
+                    "apiVersion": "2023-11-01",
+                    "name": "[concat(parameters('networkWatcherName'), '/flowlog-', parameters('nsgName'))]",
+                    "location": "[parameters('nsgRegion')]",
+                    "properties": {
+                      "targetResourceId": "[parameters('nsgId')]",
+                      "storageId": "[parameters('storageAccountId')]",
+                      "enabled": true,
+                      "retentionPolicy": {
+                        "days": "[parameters('retentionDays')]",
+                        "enabled": true
+                      },
+                      "format": {
+                        "type": "JSON",
+                        "version": 2
+                      },
+                      "flowAnalyticsConfiguration": {
+                        "networkWatcherFlowAnalyticsConfiguration": {
+                          "enabled": "[if(empty(parameters('logAnalyticsWorkspaceId')), false(), true())]",
+                          "workspaceResourceId": "[if(empty(parameters('logAnalyticsWorkspaceId')), json('null'), parameters('logAnalyticsWorkspaceId'))]",
+                          "trafficAnalyticsInterval": 10
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              "parameters": {
+                "nsgName": { "value": "[field('name')]" },
+                "nsgId": { "value": "[field('id')]" },
+                "nsgRegion": { "value": "[field('location')]" },
+                "storageAccountId": { "value": "[parameters('storageAccountId')]" },
+                "logAnalyticsWorkspaceId": { "value": "[parameters('logAnalyticsWorkspaceId')]" },
+                "retentionDays": { "value": "[parameters('retentionDays')]" },
+                "networkWatcherName": { "value": "[parameters('networkWatcherName')]" },
+                "networkWatcherRG": { "value": "[parameters('networkWatcherRG')]" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

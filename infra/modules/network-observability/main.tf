@@ -28,3 +28,30 @@ resource "azurerm_network_watcher" "this" {
   resource_group_name = var.resource_group_name
   tags                = var.tags
 }
+
+# NSG Flow Logs — one per NSG provided
+resource "azurerm_network_watcher_flow_log" "this" {
+  for_each = var.nsg_ids
+
+  name                      = "flowlog-${each.key}"
+  network_watcher_name      = azurerm_network_watcher.this.name
+  resource_group_name       = var.resource_group_name
+  network_security_group_id = each.value
+  storage_account_id        = azurerm_storage_account.flow_logs.id
+  enabled                   = true
+  version                   = 2
+  tags                      = var.tags
+
+  retention_policy {
+    enabled = true
+    days    = var.flow_log_retention_days
+  }
+
+  traffic_analytics {
+    enabled               = true
+    workspace_id          = var.workspace_customer_id
+    workspace_region      = var.location
+    workspace_resource_id = var.workspace_id
+    interval_in_minutes   = 10
+  }
+}

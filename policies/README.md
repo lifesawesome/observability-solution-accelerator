@@ -15,15 +15,15 @@ The `infra/modules/policy-initiative/` Terraform module assigns the following bu
 | Associate Windows DCR | VMs with AMA | DeployIfNotExists |
 | Associate Linux DCR | VMs with AMA | DeployIfNotExists |
 
-## Planned Custom Policies
+## Custom Policy Definitions
 
 | Policy | Description | Status |
 |--------|-------------|--------|
-| Require Diagnostic Settings | Ensure all supported resources have diagnostic settings pointing to LA workspace | Planned |
-| Deny VM without AMA | Block VM creation without AMA extension after rollout stabilizes | Planned |
-| Require Application Insights | App Services must have App Insights enabled | Planned |
-| Enforce NSG Flow Logs | All NSGs must have flow logs enabled | Planned |
-| Require Arc enrollment | On-prem servers must be Arc-connected within 30 days of discovery | Planned |
+| `require-diagnostic-settings.json` | Ensure all supported resources have diagnostic settings pointing to LA workspace | ✅ Implemented |
+| `deny-vm-without-ama.json` | Block VM creation without AMA extension after rollout stabilizes | ✅ Implemented |
+| `require-app-insights.json` | App Services must have App Insights enabled | ✅ Implemented |
+| `enforce-nsg-flow-logs.json` | All NSGs must have flow logs enabled | ✅ Implemented |
+| `require-arc-enrollment.json` | On-prem servers must be Arc-connected within 30 days of discovery | ✅ Implemented |
 
 ## Rollout Strategy
 

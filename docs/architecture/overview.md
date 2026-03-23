@@ -155,6 +155,8 @@ OT Device (PLC/SCADA) ──(OPC-UA/Modbus)──► IoT Edge ──► Azure Io
 | `lighthouse` | Cross-tenant delegated access | `azurerm_lighthouse_definition`, `azurerm_lighthouse_assignment` |
 | `iot-hub` | IoT device telemetry ingestion | `azurerm_iothub`, `azurerm_eventhub_namespace` |
 | `network-observability` | NSG flow logs + Network Watcher | `azurerm_network_watcher`, `azurerm_storage_account` |
+| `amba-alerts` | AMBA service-specific alert packs (VM, SQL, AKS, Databricks, etc.) | `azurerm_monitor_scheduled_query_rules_alert_v2` (up to 24 rules across 10 services) |
+| `aks-observability` | Container Insights + AKS alerts | `azurerm_monitor_diagnostic_setting`, `azurerm_monitor_data_collection_rule`, `azurerm_monitor_scheduled_query_rules_alert_v2` |
 | `fabric-workspace` | *(Placeholder)* Fabric KQL + Lakehouse | Manual / REST API setup |
 
 ---

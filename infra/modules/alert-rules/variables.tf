@@ -23,6 +23,18 @@ variable "customer_name" {
   type        = string
 }
 
+variable "alert_thresholds" {
+  description = "Tunable thresholds for core alert rules. Override per-customer."
+  type = object({
+    disk_free_percent         = optional(number, 10)
+    memory_committed_percent  = optional(number, 90)
+    app_exception_count       = optional(number, 50)
+    cpu_anomaly_score         = optional(number, 2.0)
+    heartbeat_missing_minutes = optional(number, 5)
+  })
+  default = {}
+}
+
 variable "tags" {
   description = "Resource tags"
   type        = map(string)

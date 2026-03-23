@@ -1,0 +1,174 @@
+{
+  "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "Syncs Azure resources as Configuration Items (CIs) into the ServiceNow CMDB. Runs daily via recurrence trigger. Queries Azure Resource Graph for VMs, App Services, SQL, Storage, and Key Vault resources, then upserts into the ServiceNow cmdb_ci_server and cmdb_ci_cloud_service tables."
+  },
+  "parameters": {
+    "servicenow_instance": {
+      "type": "String"
+    },
+    "servicenow_client_id": {
+      "type": "SecureString"
+    },
+    "servicenow_client_secret": {
+      "type": "SecureString"
+    },
+    "servicenow_username": {
+      "type": "SecureString"
+    },
+    "servicenow_password": {
+      "type": "SecureString"
+    },
+    "subscription_ids": {
+      "type": "Array",
+      "metadata": {
+        "description": "List of Azure subscription IDs to scan"
+      }
+    }
+  },
+  "triggers": {
+    "Daily_recurrence": {
+      "type": "Recurrence",
+      "recurrence": {
+        "frequency": "Day",
+        "interval": 1,
+        "startTime": "2024-01-01T02:00:00Z",
+        "timeZone": "Eastern Standard Time"
+      }
+    }
+  },
+  "actions": {
+    "Query_Azure_Resource_Graph": {
+      "type": "Http",
+      "inputs": {
+        "method": "POST",
+        "uri": "https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=2022-10-01",
+        "authentication": {
+          "type": "ManagedServiceIdentity"
+        },
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "subscriptions": "@parameters('subscription_ids')",
+          "query": "resources | where type in~ ('microsoft.compute/virtualmachines', 'microsoft.hybridcompute/machines', 'microsoft.web/sites', 'microsoft.sql/servers', 'microsoft.storage/storageaccounts', 'microsoft.keyvault/vaults') | project id, name, type, location, resourceGroup, subscriptionId, tags, properties.hardwareProfile.vmSize, properties.osProfile.computerName, properties.storageProfile.osDisk.osType, kind | order by type asc, name asc"
+        }
+      },
+      "runAfter": {}
+    },
+    "Get_ServiceNow_OAuth_token": {
+      "type": "Http",
+      "inputs": {
+        "method": "POST",
+        "uri": "https://@{parameters('servicenow_instance')}.service-now.com/oauth_token.do",
+        "headers": {
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        "body": "grant_type=password&client_id=@{parameters('servicenow_client_id')}&client_secret=@{parameters('servicenow_client_secret')}&username=@{parameters('servicenow_username')}&password=@{parameters('servicenow_password')}"
+      },
+      "runAfter": {
+        "Query_Azure_Resource_Graph": ["Succeeded"]
+      },
+      "runtimeConfiguration": {
+        "secureData": {
+          "properties": ["inputs", "outputs"]
+        }
+      }
+    },
+    "Initialize_sync_counters": {
+      "type": "InitializeVariable",
+      "inputs": {
+        "variables": [
+          {
+            "name": "syncResults",
+            "type": "object",
+            "value": {
+              "created": 0,
+              "updated": 0,
+              "failed": 0,
+              "total": 0
+            }
+          }
+        ]
+      },
+      "runAfter": {
+        "Get_ServiceNow_OAuth_token": ["Succeeded"]
+      }
+    },
+    "For_each_resource": {
+      "type": "Foreach",
+      "foreach": "@body('Query_Azure_Resource_Graph')['data']",
+      "actions": {
+        "Map_resource_type_to_CMDB_class": {
+          "type": "Compose",
+          "inputs": {
+            "className": "@if(or(equals(items('For_each_resource')['type'], 'microsoft.compute/virtualmachines'), equals(items('For_each_resource')['type'], 'microsoft.hybridcompute/machines')), 'cmdb_ci_vm_instance', 'cmdb_ci_cloud_service')",
+            "name": "@items('For_each_resource')['name']",
+            "azureResourceId": "@items('For_each_resource')['id']",
+            "location": "@items('For_each_resource')['location']",
+            "resourceGroup": "@items('For_each_resource')['resourceGroup']",
+            "subscriptionId": "@items('For_each_resource')['subscriptionId']",
+            "type": "@items('For_each_resource')['type']"
+          }
+        },
+        "Upsert_CI_in_ServiceNow": {
+          "type": "Http",
+          "inputs": {
+            "method": "POST",
+            "uri": "https://@{parameters('servicenow_instance')}.service-now.com/api/now/import/u_azure_resource_import",
+            "headers": {
+              "Content-Type": "application/json",
+              "Authorization": "Bearer @{body('Get_ServiceNow_OAuth_token')['access_token']}"
+            },
+            "body": {
+              "u_name": "@{outputs('Map_resource_type_to_CMDB_class')['name']}",
+              "u_azure_resource_id": "@{outputs('Map_resource_type_to_CMDB_class')['azureResourceId']}",
+              "u_location": "@{outputs('Map_resource_type_to_CMDB_class')['location']}",
+              "u_resource_group": "@{outputs('Map_resource_type_to_CMDB_class')['resourceGroup']}",
+              "u_subscription_id": "@{outputs('Map_resource_type_to_CMDB_class')['subscriptionId']}",
+              "u_resource_type": "@{outputs('Map_resource_type_to_CMDB_class')['type']}",
+              "u_cloud_provider": "Azure",
+              "u_operational_status": "1",
+              "u_last_synced": "@{utcNow()}"
+            }
+          },
+          "runAfter": {
+            "Map_resource_type_to_CMDB_class": ["Succeeded"]
+          }
+        }
+      },
+      "runAfter": {
+        "Initialize_sync_counters": ["Succeeded"]
+      },
+      "runtimeConfiguration": {
+        "concurrency": {
+          "repetitions": 10
+        }
+      }
+    },
+    "Compose_sync_summary": {
+      "type": "Compose",
+      "inputs": {
+        "action": "cmdb_sync_completed",
+        "timestamp": "@{utcNow()}",
+        "totalResources": "@length(body('Query_Azure_Resource_Graph')['data'])",
+        "subscriptions": "@parameters('subscription_ids')"
+      },
+      "runAfter": {
+        "For_each_resource": ["Succeeded"]
+      }
+    },
+    "Response_summary": {
+      "type": "Response",
+      "inputs": {
+        "statusCode": 200,
+        "body": "@outputs('Compose_sync_summary')"
+      },
+      "runAfter": {
+        "Compose_sync_summary": ["Succeeded"]
+      }
+    }
+  },
+  "outputs": {}
+}

@@ -19,7 +19,7 @@ variable "customer_name" {
 variable "location" {
   description = "Azure region for all resources"
   type        = string
-  default     = "eastus2"
+  default     = "westus2"
 }
 
 variable "resource_group_name" {
@@ -83,6 +83,47 @@ variable "enable_lighthouse" {
   default     = false
 }
 
+variable "enable_amba" {
+  description = "Deploy AMBA (Azure Monitor Baseline Alerts) service-specific alert packs"
+  type        = bool
+  default     = false
+}
+
+variable "amba_services" {
+  description = "List of Azure services to enable AMBA alerts for (vm, sql, appservice, aks, storage, keyvault, eventhub, cosmosdb, databricks, loadbalancer)"
+  type        = list(string)
+  default     = ["vm"]
+}
+
+variable "amba_thresholds" {
+  description = "Tunable thresholds for AMBA service-specific alerts"
+  type = object({
+    vm_cpu_percent               = optional(number, 85)
+    vm_disk_iops                 = optional(number, 500)
+    sql_dtu_percent              = optional(number, 85)
+    sql_failed_connections       = optional(number, 10)
+    appservice_http_5xx_count    = optional(number, 10)
+    appservice_response_time_sec = optional(number, 5)
+    aks_node_cpu_percent         = optional(number, 80)
+    aks_node_memory_percent      = optional(number, 80)
+    storage_throttle_count       = optional(number, 10)
+    cosmosdb_ru_percent          = optional(number, 80)
+  })
+  default = {}
+}
+
+variable "enable_aks" {
+  description = "Deploy AKS Observability module (Container Insights + AKS alerts)"
+  type        = bool
+  default     = false
+}
+
+variable "aks_cluster_id" {
+  description = "Full resource ID of the AKS cluster to monitor (required when enable_aks = true)"
+  type        = string
+  default     = ""
+}
+
 # --- Lighthouse ---
 variable "lighthouse_hub_tenant_id" {
   description = "Hub tenant ID for Lighthouse delegation"
@@ -123,11 +164,36 @@ variable "alert_email_recipients" {
   default     = []
 }
 
+variable "alert_thresholds" {
+  description = "Tunable thresholds for core alert rules"
+  type = object({
+    disk_free_percent         = optional(number, 10)
+    memory_committed_percent  = optional(number, 90)
+    app_exception_count       = optional(number, 50)
+    cpu_anomaly_score         = optional(number, 2.0)
+    heartbeat_missing_minutes = optional(number, 5)
+  })
+  default = {}
+}
+
 variable "servicenow_webhook_uri" {
   description = "ServiceNow webhook URI for ITSMC incident creation"
   type        = string
   default     = ""
   sensitive   = true
+}
+
+# --- Network Observability ---
+variable "nsg_ids" {
+  description = "Map of NSG name to resource ID for flow log creation"
+  type        = map(string)
+  default     = {}
+}
+
+variable "flow_log_retention_days" {
+  description = "Number of days to retain NSG flow logs"
+  type        = number
+  default     = 90
 }
 
 # --- Tags ---

@@ -1,0 +1,55 @@
+{
+  "properties": {
+    "displayName": "Deny VM creation without Azure Monitor Agent",
+    "description": "Blocks creation of Windows and Linux VMs that do not have the Azure Monitor Agent extension. Use in Enforce mode after AMA rollout has stabilized.",
+    "mode": "Indexed",
+    "policyType": "Custom",
+    "metadata": {
+      "version": "1.0.0",
+      "category": "Monitoring",
+      "source": "observability-accelerator"
+    },
+    "parameters": {
+      "effect": {
+        "type": "String",
+        "defaultValue": "Audit",
+        "allowedValues": ["Audit", "Deny", "Disabled"],
+        "metadata": {
+          "displayName": "Effect",
+          "description": "Start with Audit; switch to Deny after stabilization"
+        }
+      }
+    },
+    "policyRule": {
+      "if": {
+        "allOf": [
+          {
+            "field": "type",
+            "equals": "Microsoft.Compute/virtualMachines"
+          }
+        ]
+      },
+      "then": {
+        "effect": "[parameters('effect')]",
+        "details": {
+          "type": "Microsoft.Compute/virtualMachines/extensions",
+          "existenceCondition": {
+            "allOf": [
+              {
+                "field": "Microsoft.Compute/virtualMachines/extensions/type",
+                "in": [
+                  "AzureMonitorWindowsAgent",
+                  "AzureMonitorLinuxAgent"
+                ]
+              },
+              {
+                "field": "Microsoft.Compute/virtualMachines/extensions/provisioningState",
+                "equals": "Succeeded"
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

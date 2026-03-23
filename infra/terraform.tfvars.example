@@ -1,26 +1,103 @@
-subscription_id     = "00000000-0000-0000-0000-000000000000"
-customer_name       = "marathon"
-location            = "eastus2"
-resource_group_name = "rg-marathon-obs"
+# ============================================================================
+# Observability Solution Accelerator — Customer Configuration
+# ============================================================================
+# Copy this file:  cp terraform.tfvars.example <your-company>.tfvars
+# Then edit the values below.
+#
+# REQUIRED: You MUST set these 3 values. Everything else has defaults.
+# OPTIONAL: Uncomment and change only the sections relevant to you.
+# ============================================================================
 
-# Log Analytics
-workspace_sku            = "PerGB2018"
-workspace_retention_days = 90
+# ========================
+#  REQUIRED (must change)
+# ========================
+subscription_id     = "00000000-0000-0000-0000-000000000000"  # az account show --query id -o tsv
+customer_name       = "contoso"                                # lowercase, hyphens ok (e.g., "oge-energy")
+resource_group_name = "rg-contoso-obs"                         # must exist before terraform apply
 
-# Feature toggles
-enable_sentinel              = true
-enable_iot_hub               = true
-enable_network_observability = true
-enable_lighthouse            = false
+# ========================
+#  OPTIONAL — Region
+# ========================
+location = "westus2"  # alternatives: swedencentral, eastus, centralus, etc.
 
-# Application Insights - one instance per app
-app_insights_apps = ["webapp", "api", "worker"]
+# ========================
+#  OPTIONAL — Log Analytics
+# ========================
+workspace_sku            = "PerGB2018"  # or "CapacityReservation" for >100 GB/day
+workspace_retention_days = 90           # 30–730; set 365 for compliance
 
-# Alerts
+# ========================
+#  OPTIONAL — Feature Toggles (on/off)
+# ========================
+enable_sentinel              = true   # Microsoft Sentinel (SIEM/SOAR)
+enable_network_observability = true   # NSG flow logs + Traffic Analytics
+enable_iot_hub               = false  # OT/IoT device telemetry
+enable_amba                  = false  # AMBA service-specific alert packs
+enable_aks                   = false  # AKS Container Insights + alerts
+enable_lighthouse            = false  # MSP cross-tenant delegation
+
+# ========================
+#  OPTIONAL — Application Insights (one per app)
+# ========================
+app_insights_apps = ["webapp", "api", "worker"]  # set [] if no apps yet
+
+# ========================
+#  OPTIONAL — Alert Notifications
+# ========================
 alert_email_recipients = ["ops-team@example.com"]
-# servicenow_webhook_uri = "https://instance.service-now.com/api/..."
+# servicenow_webhook_uri = "https://instance.service-now.com/api/global/em/jsonv2"
 
-# Tags
+# ========================
+#  OPTIONAL — Alert Threshold Tuning
+# ========================
+# alert_thresholds = {
+#   disk_free_percent         = 10    # Alert when disk < 10% free
+#   memory_committed_percent  = 90    # Alert when memory > 90%
+#   app_exception_count       = 50    # Alert when exceptions > 50 per 5min
+#   cpu_anomaly_score         = 2.0   # ML anomaly sensitivity
+#   heartbeat_missing_minutes = 5     # Heartbeat loss detection window
+# }
+
+# ========================
+#  OPTIONAL — AMBA Alert Packs (requires enable_amba = true)
+# ========================
+# amba_services = ["vm", "sql", "appservice", "storage", "keyvault"]
+# amba_thresholds = {
+#   vm_cpu_percent               = 85
+#   sql_dtu_percent              = 85
+#   appservice_http_5xx_count    = 10
+#   appservice_response_time_sec = 5
+# }
+
+# ========================
+#  OPTIONAL — AKS (requires enable_aks = true)
+# ========================
+# aks_cluster_id = "/subscriptions/.../resourceGroups/.../providers/Microsoft.ContainerService/managedClusters/my-cluster"
+
+# ========================
+#  OPTIONAL — IoT Hub (requires enable_iot_hub = true)
+# ========================
+# iot_hub_sku      = "S1"
+# iot_hub_capacity = 1
+
+# ========================
+#  OPTIONAL — Lighthouse / MSP (requires enable_lighthouse = true)
+# ========================
+# lighthouse_hub_tenant_id    = "00000000-0000-0000-0000-000000000000"
+# lighthouse_hub_principal_id = "00000000-0000-0000-0000-000000000000"
+
+# ========================
+#  OPTIONAL — Network (requires enable_network_observability = true)
+# ========================
+# nsg_ids = {
+#   "web-nsg"     = "/subscriptions/.../networkSecurityGroups/web-nsg"
+#   "backend-nsg" = "/subscriptions/.../networkSecurityGroups/backend-nsg"
+# }
+# flow_log_retention_days = 90
+
+# ========================
+#  OPTIONAL — Tags
+# ========================
 tags = {
   environment = "production"
   managed_by  = "observability-accelerator"

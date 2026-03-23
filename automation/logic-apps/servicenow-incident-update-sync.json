@@ -1,0 +1,161 @@
+{
+  "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "Syncs ServiceNow incident state changes back to Azure Monitor alert state. Triggered by a ServiceNow Business Rule webhook when an incident is resolved or closed."
+  },
+  "parameters": {
+    "servicenow_instance": {
+      "type": "String",
+      "metadata": {
+        "description": "ServiceNow instance name"
+      }
+    },
+    "servicenow_client_id": {
+      "type": "SecureString"
+    },
+    "servicenow_client_secret": {
+      "type": "SecureString"
+    },
+    "servicenow_username": {
+      "type": "SecureString"
+    },
+    "servicenow_password": {
+      "type": "SecureString"
+    }
+  },
+  "triggers": {
+    "When_ServiceNow_incident_changes": {
+      "type": "Request",
+      "kind": "Http",
+      "inputs": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "sys_id": { "type": "string" },
+            "number": { "type": "string" },
+            "state": { "type": "string" },
+            "close_code": { "type": "string" },
+            "close_notes": { "type": "string" },
+            "correlation_id": { "type": "string" },
+            "resolved_by": { "type": "string" },
+            "resolved_at": { "type": "string" }
+          }
+        }
+      }
+    }
+  },
+  "actions": {
+    "Parse_incident_update": {
+      "type": "Compose",
+      "inputs": {
+        "incidentNumber": "@triggerBody()?['number']",
+        "state": "@triggerBody()?['state']",
+        "closeNotes": "@triggerBody()?['close_notes']",
+        "alertId": "@triggerBody()?['correlation_id']",
+        "resolvedAt": "@triggerBody()?['resolved_at']"
+      },
+      "runAfter": {}
+    },
+    "Check_if_resolved_or_closed": {
+      "type": "If",
+      "expression": {
+        "or": [
+          { "equals": ["@outputs('Parse_incident_update')['state']", "6"] },
+          { "equals": ["@outputs('Parse_incident_update')['state']", "7"] }
+        ]
+      },
+      "actions": {
+        "Check_alert_ID_exists": {
+          "type": "If",
+          "expression": {
+            "and": [
+              {
+                "not": {
+                  "equals": ["@outputs('Parse_incident_update')['alertId']", ""]
+                }
+              },
+              {
+                "not": {
+                  "equals": ["@outputs('Parse_incident_update')['alertId']", null]
+                }
+              }
+            ]
+          },
+          "actions": {
+            "Update_Azure_alert_state": {
+              "type": "Http",
+              "inputs": {
+                "method": "PATCH",
+                "uri": "https://management.azure.com@{outputs('Parse_incident_update')['alertId']}?api-version=2024-03-01",
+                "authentication": {
+                  "type": "ManagedServiceIdentity"
+                },
+                "headers": {
+                  "Content-Type": "application/json"
+                },
+                "body": {
+                  "properties": {
+                    "alertState": "Closed",
+                    "comments": "Closed via ServiceNow incident @{outputs('Parse_incident_update')['incidentNumber']}. Notes: @{outputs('Parse_incident_update')['closeNotes']}"
+                  }
+                }
+              }
+            },
+            "Log_sync_result": {
+              "type": "Compose",
+              "inputs": {
+                "action": "alert_closed_from_servicenow",
+                "incidentNumber": "@outputs('Parse_incident_update')['incidentNumber']",
+                "alertId": "@outputs('Parse_incident_update')['alertId']",
+                "closedAt": "@outputs('Parse_incident_update')['resolvedAt']",
+                "status": "success"
+              },
+              "runAfter": {
+                "Update_Azure_alert_state": ["Succeeded"]
+              }
+            }
+          },
+          "else": {
+            "actions": {
+              "Log_no_correlation_id": {
+                "type": "Compose",
+                "inputs": {
+                  "action": "skip_no_correlation_id",
+                  "incidentNumber": "@outputs('Parse_incident_update')['incidentNumber']",
+                  "message": "No Azure alert correlation_id found on incident"
+                }
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "actions": {
+          "Log_non_resolved_state": {
+            "type": "Compose",
+            "inputs": {
+              "action": "skip_non_resolved",
+              "incidentNumber": "@outputs('Parse_incident_update')['incidentNumber']",
+              "state": "@outputs('Parse_incident_update')['state']"
+            }
+          }
+        }
+      },
+      "runAfter": {
+        "Parse_incident_update": ["Succeeded"]
+      }
+    },
+    "Response": {
+      "type": "Response",
+      "inputs": {
+        "statusCode": 200,
+        "body": { "status": "processed" }
+      },
+      "runAfter": {
+        "Check_if_resolved_or_closed": ["Succeeded", "Skipped"]
+      }
+    }
+  },
+  "outputs": {}
+}

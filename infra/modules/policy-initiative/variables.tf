@@ -17,3 +17,8 @@ variable "customer_name" {
   description = "Customer name for policy naming"
   type        = string
 }
+
+variable "location" {
+  description = "Azure region for the managed identity of policy assignments"
+  type        = string
+}

@@ -2,14 +2,14 @@
 
 Logic Apps for bidirectional ServiceNow integration and orchestration workflows.
 
-## Planned Templates
+## Templates
 
 | Template | Trigger | Flow | Status |
 |----------|---------|------|--------|
-| `alert-to-servicenow-incident.json` | HTTP webhook (Action Group) | Parse alert → Create ServiceNow incident → Post Teams notification | Planned |
-| `servicenow-incident-update-sync.json` | ServiceNow webhook | Incident state change → Update Azure alert state | Planned |
-| `cmdb-sync-from-resource-graph.json` | Recurrence (daily) | Azure Resource Graph query → Upsert ServiceNow CMDB CIs | Planned |
-| `runbook-result-to-servicenow.json` | Automation webhook | Runbook completion → Update ServiceNow work notes | Planned |
+| `alert-to-servicenow-incident.json` | HTTP webhook (Action Group) | Parse alert → Create ServiceNow incident → Post Teams notification | ✅ Implemented |
+| `servicenow-incident-update-sync.json` | ServiceNow webhook | Incident state change → Update Azure alert state | ✅ Implemented |
+| `cmdb-sync-from-resource-graph.json` | Recurrence (daily) | Azure Resource Graph query → Upsert ServiceNow CMDB CIs | ✅ Implemented |
+| `runbook-result-to-servicenow.json` | Automation webhook | Runbook completion → Update ServiceNow work notes | ✅ Implemented |
 
 ## Architecture
 

@@ -1,0 +1,41 @@
+{
+  "properties": {
+    "displayName": "Audit servers not enrolled in Azure Arc",
+    "description": "Audits that all discovered on-premises servers have a corresponding Azure Arc-enabled server resource. Works in conjunction with the server discovery inventory. Intended for awareness — not enforcement.",
+    "mode": "All",
+    "policyType": "Custom",
+    "metadata": {
+      "version": "1.0.0",
+      "category": "Azure Arc",
+      "source": "observability-accelerator"
+    },
+    "parameters": {
+      "effect": {
+        "type": "String",
+        "defaultValue": "Audit",
+        "allowedValues": ["Audit", "Disabled"],
+        "metadata": {
+          "displayName": "Effect",
+          "description": "Enable or disable the policy"
+        }
+      }
+    },
+    "policyRule": {
+      "if": {
+        "allOf": [
+          {
+            "field": "type",
+            "equals": "Microsoft.HybridCompute/machines"
+          },
+          {
+            "field": "Microsoft.HybridCompute/machines/status",
+            "notEquals": "Connected"
+          }
+        ]
+      },
+      "then": {
+        "effect": "[parameters('effect')]"
+      }
+    }
+  }
+}

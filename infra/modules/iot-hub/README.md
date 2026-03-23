@@ -22,7 +22,7 @@ module "iot_hub" {
   source = "./modules/iot-hub"
 
   resource_group_name = "rg-customer-obs"
-  location            = "eastus2"
+  location            = "westus2"
   iot_hub_name        = "iot-marathon-obs"
   sku                 = "S1"
   capacity            = 1

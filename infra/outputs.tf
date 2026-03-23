@@ -42,3 +42,18 @@ output "iot_hub_hostname" {
   description = "IoT Hub hostname (if deployed)"
   value       = var.enable_iot_hub ? module.iot_hub[0].hostname : null
 }
+
+output "amba_enabled_services" {
+  description = "AMBA alert packs deployed for these services"
+  value       = var.enable_amba ? module.amba_alerts[0].enabled_services : []
+}
+
+output "amba_alert_count" {
+  description = "Total AMBA alert rules deployed"
+  value       = var.enable_amba ? module.amba_alerts[0].alert_count : 0
+}
+
+output "aks_container_insights_dcr_id" {
+  description = "AKS Container Insights DCR ID (if deployed)"
+  value       = var.enable_aks ? module.aks_observability[0].dcr_id : null
+}

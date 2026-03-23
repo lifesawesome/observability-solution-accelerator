@@ -37,11 +37,11 @@ module "app_insights" {
   source   = "./modules/app-insights"
   for_each = toset(var.app_insights_apps)
 
-  resource_group_name  = data.azurerm_resource_group.main.name
-  location             = var.location
-  app_insights_name    = "ai-${var.customer_name}-${each.key}"
-  workspace_id         = module.log_analytics.workspace_id
-  tags                 = local.common_tags
+  resource_group_name = data.azurerm_resource_group.main.name
+  location            = var.location
+  app_insights_name   = "ai-${var.customer_name}-${each.key}"
+  workspace_id        = module.log_analytics.workspace_id
+  tags                = local.common_tags
 }
 
 # ============================================================================
@@ -51,11 +51,11 @@ module "sentinel" {
   source = "./modules/sentinel"
   count  = var.enable_sentinel ? 1 : 0
 
-  resource_group_name       = data.azurerm_resource_group.main.name
-  workspace_name            = module.log_analytics.workspace_name
-  workspace_id              = module.log_analytics.workspace_id
+  resource_group_name        = data.azurerm_resource_group.main.name
+  workspace_name             = module.log_analytics.workspace_name
+  workspace_id               = module.log_analytics.workspace_id
   log_analytics_workspace_id = module.log_analytics.workspace_id
-  tags                      = local.common_tags
+  tags                       = local.common_tags
 }
 
 # ============================================================================
@@ -82,6 +82,7 @@ module "alert_rules" {
   workspace_id        = module.log_analytics.workspace_id
   action_group_id     = module.action_groups.critical_action_group_id
   customer_name       = var.customer_name
+  alert_thresholds    = var.alert_thresholds
   tags                = local.common_tags
 }
 
@@ -91,10 +92,11 @@ module "alert_rules" {
 module "policy_initiative" {
   source = "./modules/policy-initiative"
 
-  workspace_id     = module.log_analytics.workspace_id
-  dcr_windows_id   = module.log_analytics.dcr_windows_perf_id
-  dcr_linux_id     = module.log_analytics.dcr_linux_perf_id
-  customer_name    = var.customer_name
+  workspace_id   = module.log_analytics.workspace_id
+  dcr_windows_id = module.log_analytics.dcr_windows_perf_id
+  dcr_linux_id   = module.log_analytics.dcr_linux_perf_id
+  customer_name  = var.customer_name
+  location       = var.location
 }
 
 # ============================================================================
@@ -131,9 +133,46 @@ module "network_observability" {
   source = "./modules/network-observability"
   count  = var.enable_network_observability ? 1 : 0
 
+  resource_group_name     = data.azurerm_resource_group.main.name
+  location                = var.location
+  workspace_id            = module.log_analytics.workspace_id
+  workspace_customer_id   = module.log_analytics.workspace_customer_id
+  customer_name           = var.customer_name
+  nsg_ids                 = var.nsg_ids
+  flow_log_retention_days = var.flow_log_retention_days
+  tags                    = local.common_tags
+}
+
+# ============================================================================
+# AMBA: Azure Monitor Baseline Alerts — Service-Specific Alert Packs (optional)
+# ============================================================================
+module "amba_alerts" {
+  source = "./modules/amba-alerts"
+  count  = var.enable_amba ? 1 : 0
+
+  resource_group_name      = data.azurerm_resource_group.main.name
+  location                 = var.location
+  workspace_id             = module.log_analytics.workspace_id
+  critical_action_group_id = module.action_groups.critical_action_group_id
+  warning_action_group_id  = module.action_groups.warning_action_group_id
+  customer_name            = var.customer_name
+  amba_services            = var.amba_services
+  thresholds               = var.amba_thresholds
+  tags                     = local.common_tags
+}
+
+# ============================================================================
+# AKS Observability — Container Insights + AKS Alerts (optional)
+# ============================================================================
+module "aks_observability" {
+  source = "./modules/aks-observability"
+  count  = var.enable_aks ? 1 : 0
+
   resource_group_name = data.azurerm_resource_group.main.name
   location            = var.location
+  aks_cluster_id      = var.aks_cluster_id
   workspace_id        = module.log_analytics.workspace_id
+  action_group_id     = module.action_groups.critical_action_group_id
   customer_name       = var.customer_name
   tags                = local.common_tags
 }

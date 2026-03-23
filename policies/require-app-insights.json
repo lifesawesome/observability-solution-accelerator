@@ -1,0 +1,53 @@
+{
+  "properties": {
+    "displayName": "Require Application Insights on App Services",
+    "description": "Audits or denies Azure App Service web apps that do not have Application Insights enabled via the APPINSIGHTS_INSTRUMENTATIONKEY or APPLICATIONINSIGHTS_CONNECTION_STRING application setting.",
+    "mode": "Indexed",
+    "policyType": "Custom",
+    "metadata": {
+      "version": "1.0.0",
+      "category": "Monitoring",
+      "source": "observability-accelerator"
+    },
+    "parameters": {
+      "effect": {
+        "type": "String",
+        "defaultValue": "AuditIfNotExists",
+        "allowedValues": ["AuditIfNotExists", "Disabled"],
+        "metadata": {
+          "displayName": "Effect",
+          "description": "Enable or disable the policy"
+        }
+      }
+    },
+    "policyRule": {
+      "if": {
+        "allOf": [
+          {
+            "field": "type",
+            "equals": "Microsoft.Web/sites"
+          },
+          {
+            "field": "kind",
+            "notContains": "functionapp"
+          }
+        ]
+      },
+      "then": {
+        "effect": "[parameters('effect')]",
+        "details": {
+          "type": "Microsoft.Insights/components",
+          "existenceCondition": {
+            "allOf": [
+              {
+                "field": "Microsoft.Insights/components/Application_Type",
+                "equals": "web"
+              }
+            ]
+          },
+          "existenceScope": "resourceGroup"
+        }
+      }
+    }
+  }
+}

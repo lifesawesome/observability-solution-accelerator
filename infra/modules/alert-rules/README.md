@@ -19,7 +19,7 @@ module "alert_rules" {
   source = "./modules/alert-rules"
 
   resource_group_name = "rg-customer-obs"
-  location            = "eastus2"
+  location            = "westus2"
   workspace_id        = module.log_analytics.workspace_id
   action_group_id     = module.action_groups.critical_action_group_id
   customer_name       = "marathon"

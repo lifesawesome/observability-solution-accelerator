@@ -13,21 +13,21 @@ resource "azurerm_lighthouse_definition" "observability" {
   # Monitoring Reader - read metrics, logs, alerts
   authorization {
     principal_id           = var.hub_principal_id
-    role_definition_name   = "Monitoring Reader"
+    role_definition_id     = "43d0d8ad-25c7-4714-9337-8ba259a9fe05"
     principal_display_name = "Observability Hub - Monitoring Reader"
   }
 
   # Log Analytics Reader - query logs cross-tenant
   authorization {
     principal_id           = var.hub_principal_id
-    role_definition_name   = "Log Analytics Reader"
+    role_definition_id     = "73c42c96-874c-492b-b04d-ab87d138a893"
     principal_display_name = "Observability Hub - Log Analytics Reader"
   }
 
   # Sentinel Reader - view security incidents
   authorization {
     principal_id           = var.hub_principal_id
-    role_definition_name   = "Microsoft Sentinel Reader"
+    role_definition_id     = "8d289c81-5878-46d4-8554-54e1e3d8b5cb"
     principal_display_name = "Observability Hub - Sentinel Reader"
   }
 }
