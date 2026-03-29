@@ -66,28 +66,77 @@ Each customer gets an isolated spoke workspace. Your managed service hub provide
 
 | Folder | Contents |
 |--------|----------|
+| `accelerator.py` | **One-command CLI** — discover, generate, deploy |
+| `discovery/` | Resource scanner, workbook generator, deployer scripts |
 | `infra/` | Terraform root config (`main.tf`, `variables.tf`, `outputs.tf`, `providers.tf`) |
 | `infra/modules/` | Terraform modules for each Azure component |
-| `dashboards/workbooks/` | Pre-built Azure Workbook JSON templates |
+| `dashboards/workbooks/` | Pre-built + auto-generated Azure Workbook JSON templates |
 | `dashboards/powerbi/` | Power BI templates for OT observability |
 | `automation/runbooks/` | Azure Automation runbooks for L0 remediation |
 | `automation/logic-apps/` | Logic App templates for ServiceNow integration |
 | `policies/` | Azure Policy definitions and initiatives |
 | `docs/` | Architecture docs, onboarding playbook, instrumentation guides |
 | `templates/` | Assessment templates (gap analysis, partner matrix) |
+| `generated-workbooks/` | *(auto-created)* Customer-specific workbooks from discovery |
 
-## Quick Start — Customer Deployment Guide
+## Quick Start — One-Command Accelerator (NEW)
 
-This accelerator is a **scaffold template**. Customers never edit module code — they only create a single `.tfvars` file with their values and run `terraform apply`.
+The fastest way to deploy. The accelerator **auto-discovers** your Azure resources, **generates dashboards**, and **deploys everything** with a single command.
 
 ### Prerequisites
 
 | Requirement | Details |
 |------------|---------|
+| **Python** | >= 3.9 with pip |
 | **Terraform** | >= 1.5.0 ([install guide](https://developer.hashicorp.com/terraform/install)) |
-| **Azure CLI** | Latest version ([install guide](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli)) |
+| **Azure CLI** | Latest version, authenticated (`az login`) |
 | **Azure Subscription** | With **Contributor** + **User Access Administrator** roles |
-| **Resource Group** | Pre-created in your target region, or permissions to create one |
+| **Resource Group** | Pre-created in your target region |
+
+### One-Command Deploy
+
+```bash
+git clone <repo-url>
+cd observability-solution-accelerator
+
+# Install Python dependencies
+pip install -r discovery/requirements.txt
+
+# Create the resource group
+az group create --name rg-contoso-obs --location westus2
+
+# Run the accelerator (discovers resources → generates workbooks → deploys)
+python accelerator.py \
+  --subscription-id "your-subscription-id" \
+  --customer-name "contoso" \
+  --resource-group "rg-contoso-obs" \
+  --location "westus2"
+```
+
+This single command will:
+1. **Scan** your subscription and inventory all resources (VMs, AKS, IoT, App Services, databases, etc.)
+2. **Auto-detect** which features to enable (AKS monitoring, IoT Hub, network observability, AMBA alerts)
+3. **Generate** type-specific Azure Workbooks based on discovered resources
+4. **Create** a Terraform `.tfvars` file with all settings pre-configured
+5. **Run** `terraform plan` to preview the deployment
+
+Add `--auto-approve` to deploy without review, or `--dry-run` to preview all steps.
+
+### What Gets Auto-Generated
+
+| Discovered Resources | Auto-Generated Workbook | Terraform Feature |
+|---------------------|------------------------|-------------------|
+| VMs, VMSS | VM Logs Dashboard (CPU, memory, disk, events) | `enable_amba = true` |
+| AKS Clusters | K8s Logs Dashboard (pods, containers, nodes) | `enable_aks = true` |
+| IoT Hubs | IoT Logs Dashboard (device health, telemetry) | `enable_iot_hub = true` |
+| App Services, Functions | Application Logs Dashboard (errors, latency) | App Insights apps detected |
+| NSGs, VNets, Load Balancers | Network Logs Dashboard (flows, connectivity) | `enable_network_observability = true` |
+
+---
+
+## Manual Deployment Guide
+
+If you prefer full control, you can manually create a `.tfvars` file and deploy step by step.
 
 ### Step 1: Clone and Create Your Config
 
@@ -253,6 +302,7 @@ With just the 3 required values + defaults, you get:
 | Alert Rules | 5 | Heartbeat loss, app errors, disk, memory, CPU anomaly |
 | Azure Policy Assignments | 6 | Auto-deploy AMA + associate DCRs to all VMs |
 | Network Watcher | 1 | Network observability baseline |
+| Azure Workbooks | 1-5 | **Auto-generated** from discovery (VM, Network, App, K8s, IoT) |
 
 ### Post-Deploy Steps (Optional)
 

@@ -1,0 +1,169 @@
+{
+  "version": "Notebook/1.0",
+  "items": [
+    {
+      "type": 1,
+      "content": {
+        "json": "# IoT Monitoring\n\nAzure IoT Hub observability: device connectivity, message throughput, device twin activity, routing health, and D2C/C2D latency."
+      },
+      "name": "header"
+    },
+    {
+      "type": 9,
+      "content": {
+        "version": "KqlParameterItem/1.0",
+        "parameters": [
+          {
+            "id": "timeRange",
+            "type": 4,
+            "label": "Time Range",
+            "value": { "durationMs": 86400000 }
+          },
+          {
+            "id": "subscription",
+            "type": 6,
+            "multiSelect": true,
+            "label": "Subscription",
+            "value": ["__SUBSCRIPTION_ID__"]
+          }
+        ]
+      },
+      "name": "parameters"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Device Connectivity"
+      },
+      "name": "connectivity-header"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Device connectivity status – connect/disconnect events from IoT Hub diagnostics\nAzureDiagnostics\n| where TimeGenerated {timeRange}\n| where ResourceProvider == 'MICROSOFT.DEVICES' and Category == 'Connections'\n| extend DeviceId = tostring(deviceId_s)\n| summarize\n    Connects    = countif(operationName_s == 'deviceConnect'),\n    Disconnects = countif(operationName_s == 'deviceDisconnect'),\n    LastEvent   = max(TimeGenerated)\n    by DeviceId, Resource\n| extend Status = iif(Connects > Disconnects, 'Connected', 'Disconnected')\n| order by LastEvent desc\n| project DeviceId, Resource, Connects, Disconnects, Status, LastEvent\n",
+        "size": 0,
+        "title": "Device Connectivity Status",
+        "timeContext": { "durationMs": 86400000 },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": ["__WORKSPACE_ID__"],
+        "visualization": "table"
+      },
+      "name": "device-connectivity"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Device connection/disconnection trend over time\nAzureDiagnostics\n| where TimeGenerated {timeRange}\n| where ResourceProvider == 'MICROSOFT.DEVICES' and Category == 'Connections'\n| summarize\n    Connects    = countif(operationName_s == 'deviceConnect'),\n    Disconnects = countif(operationName_s == 'deviceDisconnect')\n    by bin(TimeGenerated, 1h)\n| order by TimeGenerated asc\n",
+        "size": 0,
+        "title": "Connection / Disconnection Trend",
+        "timeContext": { "durationMs": 86400000 },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": ["__WORKSPACE_ID__"],
+        "visualization": "timechart"
+      },
+      "name": "connection-trend"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Message Throughput"
+      },
+      "name": "throughput-header"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Message throughput – total and per-device from AzureMetrics\nAzureMetrics\n| where TimeGenerated {timeRange}\n| where ResourceProvider == 'MICROSOFT.DEVICES'\n| where MetricName in ('d2c.telemetry.ingress.success', 'd2c.telemetry.ingress.allProtocol')\n| summarize TotalMessages = sum(Total) by bin(TimeGenerated, 1h), MetricName, Resource\n| order by TimeGenerated asc\n",
+        "size": 0,
+        "title": "D2C Message Ingress Over Time",
+        "timeContext": { "durationMs": 86400000 },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": ["__WORKSPACE_ID__"],
+        "visualization": "timechart"
+      },
+      "name": "message-throughput-trend"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Per-device message volume (top senders)\nAzureDiagnostics\n| where TimeGenerated {timeRange}\n| where ResourceProvider == 'MICROSOFT.DEVICES' and Category == 'D2CTwinOperations' or Category == 'DeviceTelemetry'\n| extend DeviceId = tostring(deviceId_s)\n| where isnotempty(DeviceId)\n| summarize MessageCount = count() by DeviceId, Resource\n| top 20 by MessageCount desc\n| project DeviceId, IoTHub = Resource, MessageCount\n",
+        "size": 0,
+        "title": "Top 20 Devices by Message Volume",
+        "timeContext": { "durationMs": 86400000 },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": ["__WORKSPACE_ID__"],
+        "visualization": "barchart"
+      },
+      "name": "top-devices-by-volume"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Device Twin & Routing"
+      },
+      "name": "twin-routing-header"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Device twin update activity\nAzureDiagnostics\n| where TimeGenerated {timeRange}\n| where ResourceProvider == 'MICROSOFT.DEVICES' and Category == 'D2CTwinOperations'\n| extend DeviceId = tostring(deviceId_s)\n| summarize\n    UpdateCount = count(),\n    Successes   = countif(Level == 'Information'),\n    Failures    = countif(Level == 'Error')\n    by DeviceId, operationName_s, Resource\n| order by UpdateCount desc\n| top 25 by UpdateCount\n| project DeviceId, Operation = operationName_s, IoTHub = Resource, UpdateCount, Successes, Failures\n",
+        "size": 0,
+        "title": "Device Twin Update Activity",
+        "timeContext": { "durationMs": 86400000 },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": ["__WORKSPACE_ID__"],
+        "visualization": "table"
+      },
+      "name": "device-twin-updates"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Routing failures – messages that failed to route\nAzureDiagnostics\n| where TimeGenerated {timeRange}\n| where ResourceProvider == 'MICROSOFT.DEVICES' and Category == 'Routes'\n| where Level == 'Error' or isnotempty(properties_errorMessage_s)\n| summarize FailureCount = count() by Resource, operationName_s, properties_endpointName_s, properties_errorMessage_s\n| order by FailureCount desc\n| project IoTHub = Resource, Operation = operationName_s, Endpoint = properties_endpointName_s, ErrorMessage = properties_errorMessage_s, FailureCount\n",
+        "size": 0,
+        "title": "Message Routing Failures",
+        "timeContext": { "durationMs": 86400000 },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": ["__WORKSPACE_ID__"],
+        "visualization": "table"
+      },
+      "name": "routing-failures"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Latency"
+      },
+      "name": "latency-header"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// D2C and C2D latency from IoT Hub metrics\nAzureMetrics\n| where TimeGenerated {timeRange}\n| where ResourceProvider == 'MICROSOFT.DEVICES'\n| where MetricName in ('d2c.telemetry.ingress.sendThrottle', 'd2c.telemetry.egress.success', 'c2d.methods.success', 'c2d.commands.egress.complete.success')\n| summarize\n    AvgValue = round(avg(Average), 2),\n    MaxValue = round(max(Maximum), 2)\n    by bin(TimeGenerated, 1h), MetricName, Resource\n| order by TimeGenerated asc\n",
+        "size": 0,
+        "title": "D2C / C2D Metric Trends",
+        "timeContext": { "durationMs": 86400000 },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": ["__WORKSPACE_ID__"],
+        "visualization": "timechart"
+      },
+      "name": "d2c-c2d-latency"
+    }
+  ],
+  "fallbackResourceIds": ["__WORKSPACE_ID__"],
+  "$schema": "https://github.com/Microsoft/Application-Insights-Workbooks/blob/master/schema/workbook.json"
+}

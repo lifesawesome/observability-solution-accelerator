@@ -1,0 +1,176 @@
+{
+  "version": "Notebook/1.0",
+  "items": [
+    {
+      "type": 1,
+      "content": {
+        "json": "# VM Monitoring\n\nComprehensive virtual machine health: CPU, memory, and disk utilization, heartbeat status, top processes, and OS-level error logs for Windows and Linux."
+      },
+      "name": "header"
+    },
+    {
+      "type": 9,
+      "content": {
+        "version": "KqlParameterItem/1.0",
+        "parameters": [
+          {
+            "id": "timeRange",
+            "type": 4,
+            "label": "Time Range",
+            "value": { "durationMs": 86400000 }
+          },
+          {
+            "id": "subscription",
+            "type": 6,
+            "multiSelect": true,
+            "label": "Subscription",
+            "value": ["__SUBSCRIPTION_ID__"]
+          }
+        ]
+      },
+      "name": "parameters"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## VM Heartbeat & Availability"
+      },
+      "name": "heartbeat-header"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// VM heartbeat health – last heartbeat per VM, flag stale agents\nHeartbeat\n| where TimeGenerated {timeRange}\n| summarize LastHeartbeat = max(TimeGenerated) by Computer, OSType, ResourceGroup, _ResourceId\n| extend\n    MinutesSinceHeartbeat = datetime_diff('minute', now(), LastHeartbeat),\n    Status = case(\n        LastHeartbeat >= ago(5m),  'Healthy',\n        LastHeartbeat >= ago(30m), 'Degraded',\n        'Offline'\n    )\n| order by MinutesSinceHeartbeat desc\n| project Computer, OSType, ResourceGroup, LastHeartbeat, MinutesSinceHeartbeat, Status\n",
+        "size": 0,
+        "title": "VM Heartbeat Health",
+        "timeContext": { "durationMs": 86400000 },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": ["__WORKSPACE_ID__"],
+        "visualization": "table"
+      },
+      "name": "vm-heartbeat-health"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## CPU & Memory"
+      },
+      "name": "cpu-mem-header"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// CPU usage trend per VM – hourly average of % Processor Time\nPerf\n| where TimeGenerated {timeRange}\n| where ObjectName == 'Processor' and CounterName == '% Processor Time' and InstanceName == '_Total'\n| summarize AvgCPU = round(avg(CounterValue), 2) by bin(TimeGenerated, 1h), Computer\n| order by TimeGenerated asc\n",
+        "size": 0,
+        "title": "CPU Usage Trend per VM",
+        "timeContext": { "durationMs": 86400000 },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": ["__WORKSPACE_ID__"],
+        "visualization": "timechart"
+      },
+      "name": "cpu-trend-per-vm"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Memory utilization per VM – % Committed Bytes In Use\nPerf\n| where TimeGenerated {timeRange}\n| where ObjectName == 'Memory' and CounterName == '% Committed Bytes In Use'\n| summarize\n    AvgMemoryPct = round(avg(CounterValue), 2),\n    MaxMemoryPct = round(max(CounterValue), 2),\n    P95MemoryPct = round(percentile(CounterValue, 95), 2)\n    by Computer\n| order by AvgMemoryPct desc\n| project Computer, AvgMemoryPct, P95MemoryPct, MaxMemoryPct\n",
+        "size": 0,
+        "title": "Memory Utilization per VM (% Committed Bytes In Use)",
+        "timeContext": { "durationMs": 86400000 },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": ["__WORKSPACE_ID__"],
+        "visualization": "table"
+      },
+      "name": "memory-utilization"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Disk"
+      },
+      "name": "disk-header"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Disk free space warnings – volumes below 15%\nPerf\n| where TimeGenerated {timeRange}\n| where ObjectName == 'LogicalDisk' and CounterName == '% Free Space'\n| where InstanceName !in ('_Total', 'HarddiskVolume1')\n| summarize AvgFreeSpacePct = round(avg(CounterValue), 2), LatestFreeSpacePct = round(arg_max(TimeGenerated, CounterValue).CounterValue, 2) by Computer, InstanceName\n| where AvgFreeSpacePct < 15\n| order by AvgFreeSpacePct asc\n| project Computer, Drive = InstanceName, AvgFreeSpacePct, LatestFreeSpacePct\n",
+        "size": 0,
+        "title": "Disk Free Space Warnings (< 15%)",
+        "timeContext": { "durationMs": 86400000 },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": ["__WORKSPACE_ID__"],
+        "visualization": "table"
+      },
+      "name": "disk-free-space"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Top Processes"
+      },
+      "name": "processes-header"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Top processes by CPU from VM Insights metrics\nInsightsMetrics\n| where TimeGenerated {timeRange}\n| where Namespace == 'Processor' and Name == 'UtilizationPercentage'\n| extend ComputerName = tostring(split(_ResourceId, '/')[-1])\n| summarize AvgCPU = round(avg(Val), 2) by ComputerName, Tags\n| extend Process = extract(@'\"vm.azm.ms/processName\":\"([^\"]+)\"', 1, tostring(Tags))\n| where isnotempty(Process)\n| top 20 by AvgCPU desc\n| project ComputerName, Process, AvgCPU\n",
+        "size": 0,
+        "title": "Top 20 Processes by CPU Usage",
+        "timeContext": { "durationMs": 86400000 },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": ["__WORKSPACE_ID__"],
+        "visualization": "barchart"
+      },
+      "name": "top-processes-cpu"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## OS Event Logs"
+      },
+      "name": "os-logs-header"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Windows Event Log errors – top error sources\nEvent\n| where TimeGenerated {timeRange}\n| where EventLevelName == 'Error'\n| summarize ErrorCount = count() by Source, EventID, Computer\n| top 25 by ErrorCount desc\n| project Computer, Source, EventID, ErrorCount\n",
+        "size": 0,
+        "title": "Windows Event Log Errors",
+        "timeContext": { "durationMs": 86400000 },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": ["__WORKSPACE_ID__"],
+        "visualization": "table"
+      },
+      "name": "windows-event-errors"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Syslog errors for Linux VMs\nSyslog\n| where TimeGenerated {timeRange}\n| where SeverityLevel in ('err', 'crit', 'alert', 'emerg')\n| summarize ErrorCount = count() by Computer, Facility, SeverityLevel, ProcessName\n| top 25 by ErrorCount desc\n| project Computer, Facility, SeverityLevel, ProcessName, ErrorCount\n",
+        "size": 0,
+        "title": "Linux Syslog Errors",
+        "timeContext": { "durationMs": 86400000 },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": ["__WORKSPACE_ID__"],
+        "visualization": "table"
+      },
+      "name": "linux-syslog-errors"
+    }
+  ],
+  "fallbackResourceIds": ["__WORKSPACE_ID__"],
+  "$schema": "https://github.com/Microsoft/Application-Insights-Workbooks/blob/master/schema/workbook.json"
+}

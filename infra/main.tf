@@ -176,3 +176,21 @@ module "aks_observability" {
   customer_name       = var.customer_name
   tags                = local.common_tags
 }
+
+# ============================================================================
+# Layer 4: Auto-Generated Workbooks (optional)
+# ============================================================================
+# Deploy workbooks from the generated-workbooks/ directory.
+# Run discovery/generate_workbooks.py BEFORE terraform apply to populate
+# the workbook_files map. See docs/onboarding-playbook.md for the full flow.
+# ============================================================================
+module "workbooks" {
+  source = "./modules/workbooks"
+  count  = var.enable_workbooks ? 1 : 0
+
+  resource_group_name = data.azurerm_resource_group.main.name
+  location            = var.location
+  workspace_id        = module.log_analytics.workspace_id
+  workbook_files      = var.workbook_files
+  tags                = local.common_tags
+}

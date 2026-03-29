@@ -196,6 +196,19 @@ variable "flow_log_retention_days" {
   default     = 90
 }
 
+# --- Workbooks ---
+variable "enable_workbooks" {
+  description = "Deploy auto-generated Azure Workbooks from discovery output"
+  type        = bool
+  default     = false
+}
+
+variable "workbook_files" {
+  description = "Map of workbook display name to local JSON file path (populated by discovery/generate_workbooks.py)"
+  type        = map(string)
+  default     = {}
+}
+
 # --- Tags ---
 variable "tags" {
   description = "Tags applied to all resources"

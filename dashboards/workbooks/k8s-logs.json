@@ -1,0 +1,169 @@
+{
+  "version": "Notebook/1.0",
+  "items": [
+    {
+      "type": 1,
+      "content": {
+        "json": "# Kubernetes Monitoring\n\nAKS and Kubernetes cluster health: pod restarts, container resource usage, crash loops, node utilization, cluster events, and container log errors."
+      },
+      "name": "header"
+    },
+    {
+      "type": 9,
+      "content": {
+        "version": "KqlParameterItem/1.0",
+        "parameters": [
+          {
+            "id": "timeRange",
+            "type": 4,
+            "label": "Time Range",
+            "value": { "durationMs": 86400000 }
+          },
+          {
+            "id": "subscription",
+            "type": 6,
+            "multiSelect": true,
+            "label": "Subscription",
+            "value": ["__SUBSCRIPTION_ID__"]
+          }
+        ]
+      },
+      "name": "parameters"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Pod Health"
+      },
+      "name": "pod-health-header"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Pod restart count by namespace – highlight pods with excessive restarts\nKubePodInventory\n| where TimeGenerated {timeRange}\n| where PodRestartCount > 0\n| summarize\n    MaxRestarts     = max(PodRestartCount),\n    LatestRestarts  = arg_max(TimeGenerated, PodRestartCount).PodRestartCount\n    by Namespace, Name, ClusterName\n| order by MaxRestarts desc\n| top 30 by MaxRestarts\n| project ClusterName, Namespace, Pod = Name, MaxRestarts, LatestRestarts\n",
+        "size": 0,
+        "title": "Pod Restart Counts by Namespace",
+        "timeContext": { "durationMs": 86400000 },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": ["__WORKSPACE_ID__"],
+        "visualization": "table"
+      },
+      "name": "pod-restart-count"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Failed pods and crash-looping containers\nKubePodInventory\n| where TimeGenerated {timeRange}\n| where PodStatus in ('Failed', 'Unknown') or ContainerStatusReason in ('CrashLoopBackOff', 'Error', 'OOMKilled')\n| summarize\n    OccurrenceCount = count(),\n    LastSeen = max(TimeGenerated)\n    by ClusterName, Namespace, Name, PodStatus, ContainerStatusReason\n| order by OccurrenceCount desc\n| project ClusterName, Namespace, Pod = Name, PodStatus, StatusReason = ContainerStatusReason, OccurrenceCount, LastSeen\n",
+        "size": 0,
+        "title": "Failed Pods & Crash Loops",
+        "timeContext": { "durationMs": 86400000 },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": ["__WORKSPACE_ID__"],
+        "visualization": "table"
+      },
+      "name": "failed-pods-crashloops"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Container Resource Usage"
+      },
+      "name": "container-resources-header"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Container CPU usage by namespace – millicores trend\nInsightsMetrics\n| where TimeGenerated {timeRange}\n| where Namespace == 'container.azm.ms/cpuUsageMillicores' or (Namespace == 'container.azm.ms' and Name == 'cpuUsageMillicores')\n| extend K8sNamespace = tostring(parse_json(Tags)['k8sNamespace'])\n| where isnotempty(K8sNamespace)\n| summarize AvgCPU = round(avg(Val), 2) by bin(TimeGenerated, 15m), K8sNamespace\n| order by TimeGenerated asc\n",
+        "size": 0,
+        "title": "Container CPU Usage by Namespace",
+        "timeContext": { "durationMs": 86400000 },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": ["__WORKSPACE_ID__"],
+        "visualization": "timechart"
+      },
+      "name": "container-cpu-by-namespace"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Container memory working set by namespace\nInsightsMetrics\n| where TimeGenerated {timeRange}\n| where Namespace == 'container.azm.ms/memoryWorkingSetBytes' or (Namespace == 'container.azm.ms' and Name == 'memoryWorkingSetBytes')\n| extend K8sNamespace = tostring(parse_json(Tags)['k8sNamespace'])\n| where isnotempty(K8sNamespace)\n| summarize AvgMemMB = round(avg(Val) / 1048576.0, 2) by bin(TimeGenerated, 15m), K8sNamespace\n| order by TimeGenerated asc\n",
+        "size": 0,
+        "title": "Container Memory Working Set by Namespace",
+        "timeContext": { "durationMs": 86400000 },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": ["__WORKSPACE_ID__"],
+        "visualization": "timechart"
+      },
+      "name": "container-memory-by-namespace"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Node Utilization & Cluster Events"
+      },
+      "name": "node-events-header"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Node resource utilization – CPU and memory per node\nInsightsMetrics\n| where TimeGenerated {timeRange}\n| where Namespace == 'container.azm.ms' and Name in ('cpuUsageMillicores', 'memoryWorkingSetBytes')\n| extend NodeName = tostring(parse_json(Tags)['hostName'])\n| where isnotempty(NodeName)\n| summarize AvgValue = avg(Val) by NodeName, Name\n| evaluate pivot(Name, avg(AvgValue))\n| extend\n    AvgCPUMillicores = round(cpuUsageMillicores, 2),\n    AvgMemoryMB      = round(memoryWorkingSetBytes / 1048576.0, 2)\n| project NodeName, AvgCPUMillicores, AvgMemoryMB\n| order by AvgCPUMillicores desc\n",
+        "size": 0,
+        "title": "Node Resource Utilization",
+        "timeContext": { "durationMs": 86400000 },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": ["__WORKSPACE_ID__"],
+        "visualization": "table"
+      },
+      "name": "node-utilization"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Cluster events and warnings\nKubeEvents\n| where TimeGenerated {timeRange}\n| where Reason !in ('Pulling', 'Pulled', 'Created', 'Started', 'Scheduled')\n| summarize EventCount = count() by ClusterName, Namespace, Name, Reason, ObjectKind, Message = strcat(take(Message, 120))\n| top 30 by EventCount desc\n| project ClusterName, Namespace, ObjectKind, Name, Reason, EventCount, Message\n",
+        "size": 0,
+        "title": "Cluster Events & Warnings",
+        "timeContext": { "durationMs": 86400000 },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": ["__WORKSPACE_ID__"],
+        "visualization": "table"
+      },
+      "name": "cluster-events"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Container Log Errors"
+      },
+      "name": "container-logs-header"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Container log errors – lines containing error/exception/fatal\nContainerLog\n| where TimeGenerated {timeRange}\n| where LogEntry has_any ('error', 'Error', 'ERROR', 'exception', 'Exception', 'EXCEPTION', 'fatal', 'Fatal', 'FATAL')\n| extend ContainerID_short = substring(ContainerID, 0, 12)\n| summarize ErrorLineCount = count() by Computer, ContainerID_short, LogEntrySource\n| top 25 by ErrorLineCount desc\n| project Computer, ContainerID = ContainerID_short, LogEntrySource, ErrorLineCount\n",
+        "size": 0,
+        "title": "Container Log Errors",
+        "timeContext": { "durationMs": 86400000 },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": ["__WORKSPACE_ID__"],
+        "visualization": "table"
+      },
+      "name": "container-log-errors"
+    }
+  ],
+  "fallbackResourceIds": ["__WORKSPACE_ID__"],
+  "$schema": "https://github.com/Microsoft/Application-Insights-Workbooks/blob/master/schema/workbook.json"
+}

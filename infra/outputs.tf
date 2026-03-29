@@ -57,3 +57,13 @@ output "aks_container_insights_dcr_id" {
   description = "AKS Container Insights DCR ID (if deployed)"
   value       = var.enable_aks ? module.aks_observability[0].dcr_id : null
 }
+
+output "workbook_ids" {
+  description = "Map of deployed workbook names to their Azure resource IDs"
+  value       = var.enable_workbooks ? module.workbooks[0].workbook_ids : {}
+}
+
+output "workbook_count" {
+  description = "Number of workbooks deployed"
+  value       = var.enable_workbooks ? module.workbooks[0].workbook_count : 0
+}
