@@ -1,0 +1,186 @@
+{
+  "version": "Notebook/1.0",
+  "items": [
+    {
+      "type": 1,
+      "content": {
+        "json": "# Logic App Logs\n\nLogic App workflow diagnostics covering run success/failure rates, action-level errors, trigger health, and run duration trends."
+      },
+      "name": "header"
+    },
+    {
+      "type": 9,
+      "content": {
+        "version": "KqlParameterItem/1.0",
+        "parameters": [
+          {
+            "id": "timeRange",
+            "type": 4,
+            "label": "Time Range",
+            "value": {
+              "durationMs": 86400000
+            },
+            "name": "timeRange"
+          },
+          {
+            "id": "subscription",
+            "type": 6,
+            "multiSelect": true,
+            "label": "Subscription",
+            "value": [
+              "__SUBSCRIPTION_ID__"
+            ],
+            "name": "subscription"
+          }
+        ]
+      },
+      "name": "parameters"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Workflow Run Overview"
+      },
+      "name": "runs-header"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Logic App workflow runs \u2014 success vs failure trend\nAzureDiagnostics\n| where TimeGenerated {timeRange}\n| where ResourceProvider == 'MICROSOFT.LOGIC'\n| where Category == 'WorkflowRuntime'\n| where OperationName == 'Microsoft.Logic/workflows/workflowRunCompleted'\n| summarize\n    Succeeded = countif(status_s == 'Succeeded'),\n    Failed    = countif(status_s == 'Failed'),\n    Cancelled = countif(status_s == 'Cancelled')\n    by bin(TimeGenerated, 1h)\n| order by TimeGenerated asc\n",
+        "size": 0,
+        "title": "Workflow Runs Over Time (Succeeded / Failed / Cancelled)",
+        "timeContext": {
+          "durationMs": 86400000
+        },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
+        "visualization": "timechart"
+      },
+      "name": "workflow-run-trend"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Per-workflow success rate\nAzureDiagnostics\n| where TimeGenerated {timeRange}\n| where ResourceProvider == 'MICROSOFT.LOGIC'\n| where Category == 'WorkflowRuntime'\n| where OperationName == 'Microsoft.Logic/workflows/workflowRunCompleted'\n| summarize\n    Total = count(),\n    Succeeded = countif(status_s == 'Succeeded'),\n    Failed = countif(status_s == 'Failed')\n    by Resource\n| extend SuccessRate = round(100.0 * Succeeded / Total, 1)\n| order by Total desc\n| project Workflow = Resource, Total, Succeeded, Failed, SuccessRate\n",
+        "size": 0,
+        "title": "Workflow Success Rate",
+        "timeContext": {
+          "durationMs": 86400000
+        },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
+        "visualization": "table"
+      },
+      "name": "workflow-success-rate"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Action-Level Errors"
+      },
+      "name": "actions-header"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Failed actions \u2014 top errors by action name\nAzureDiagnostics\n| where TimeGenerated {timeRange}\n| where ResourceProvider == 'MICROSOFT.LOGIC'\n| where Category == 'WorkflowRuntime'\n| where OperationName == 'Microsoft.Logic/workflows/workflowActionCompleted'\n| where status_s == 'Failed'\n| summarize FailCount = count() by Resource, resource_actionName_s, error_code_s\n| top 25 by FailCount desc\n| project Workflow = Resource, Action = resource_actionName_s, ErrorCode = error_code_s, FailCount\n",
+        "size": 0,
+        "title": "Top Failed Actions by Error Code",
+        "timeContext": {
+          "durationMs": 86400000
+        },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
+        "visualization": "table"
+      },
+      "name": "failed-actions"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Action failures trend over time\nAzureDiagnostics\n| where TimeGenerated {timeRange}\n| where ResourceProvider == 'MICROSOFT.LOGIC'\n| where Category == 'WorkflowRuntime'\n| where OperationName == 'Microsoft.Logic/workflows/workflowActionCompleted'\n| where status_s == 'Failed'\n| summarize FailCount = count() by bin(TimeGenerated, 1h), Resource\n| order by TimeGenerated asc\n",
+        "size": 0,
+        "title": "Action Failures Over Time",
+        "timeContext": {
+          "durationMs": 86400000
+        },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
+        "visualization": "timechart"
+      },
+      "name": "action-failures-trend"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Trigger Health"
+      },
+      "name": "trigger-header"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Trigger outcomes \u2014 fired vs skipped vs failed\nAzureDiagnostics\n| where TimeGenerated {timeRange}\n| where ResourceProvider == 'MICROSOFT.LOGIC'\n| where Category == 'WorkflowRuntime'\n| where OperationName has 'workflowTriggerCompleted'\n| summarize\n    Fired   = countif(status_s == 'Succeeded'),\n    Skipped = countif(status_s == 'Skipped'),\n    Failed  = countif(status_s == 'Failed')\n    by bin(TimeGenerated, 1h)\n| order by TimeGenerated asc\n",
+        "size": 0,
+        "title": "Trigger Outcomes Over Time",
+        "timeContext": {
+          "durationMs": 86400000
+        },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
+        "visualization": "timechart"
+      },
+      "name": "trigger-outcomes"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Run Duration"
+      },
+      "name": "duration-header"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Workflow run duration percentiles over time\nAzureDiagnostics\n| where TimeGenerated {timeRange}\n| where ResourceProvider == 'MICROSOFT.LOGIC'\n| where Category == 'WorkflowRuntime'\n| where OperationName == 'Microsoft.Logic/workflows/workflowRunCompleted'\n| where isnotempty(duration_s)\n| extend DurationSec = totimespan(duration_s) / 1s\n| summarize\n    P50 = percentile(DurationSec, 50),\n    P95 = percentile(DurationSec, 95),\n    P99 = percentile(DurationSec, 99)\n    by bin(TimeGenerated, 1h)\n| order by TimeGenerated asc\n",
+        "size": 0,
+        "title": "Workflow Run Duration (seconds) \u2014 P50 / P95 / P99",
+        "timeContext": {
+          "durationMs": 86400000
+        },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
+        "visualization": "timechart"
+      },
+      "name": "run-duration"
+    }
+  ],
+  "fallbackResourceIds": [
+    "__WORKSPACE_ID__"
+  ],
+  "$schema": "https://github.com/Microsoft/Application-Insights-Workbooks/blob/master/schema/workbook.json"
+}

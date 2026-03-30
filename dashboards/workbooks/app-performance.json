@@ -17,14 +17,20 @@
             "id": "timeRange",
             "type": 4,
             "label": "Time Range",
-            "value": { "durationMs": 86400000 }
+            "value": {
+              "durationMs": 86400000
+            },
+            "name": "timeRange"
           },
           {
             "id": "appName",
             "type": 2,
             "label": "Application",
             "query": "AppRequests | distinct AppRoleName",
-            "value": [ "value::all" ]
+            "value": [
+              "value::all"
+            ],
+            "name": "appName"
           }
         ]
       },
@@ -50,7 +56,10 @@
         "title": "Request Rate & Failure Rate (5m bins)",
         "visualization": "linechart",
         "chartSettings": {
-          "yAxis": [ "Requests", "FailureRate" ]
+          "yAxis": [
+            "Requests",
+            "FailureRate"
+          ]
         }
       },
       "name": "request-rate-trend"

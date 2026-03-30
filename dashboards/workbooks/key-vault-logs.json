@@ -1,0 +1,205 @@
+{
+  "version": "Notebook/1.0",
+  "items": [
+    {
+      "type": 1,
+      "content": {
+        "json": "# Key Vault Logs\n\nKey Vault audit events covering secret/key/certificate access, authentication failures, throttled operations, and vault availability."
+      },
+      "name": "header"
+    },
+    {
+      "type": 9,
+      "content": {
+        "version": "KqlParameterItem/1.0",
+        "parameters": [
+          {
+            "id": "timeRange",
+            "type": 4,
+            "label": "Time Range",
+            "value": {
+              "durationMs": 86400000
+            },
+            "name": "timeRange"
+          },
+          {
+            "id": "subscription",
+            "type": 6,
+            "multiSelect": true,
+            "label": "Subscription",
+            "value": [
+              "__SUBSCRIPTION_ID__"
+            ],
+            "name": "subscription"
+          }
+        ]
+      },
+      "name": "parameters"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Vault Operations Overview"
+      },
+      "name": "ops-header"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Key Vault operations over time by result status\nAzureDiagnostics\n| where TimeGenerated {timeRange}\n| where ResourceProvider == 'MICROSOFT.KEYVAULT'\n| summarize\n    Success = countif(ResultSignature == 'OK' or httpStatusCode_d >= 200 and httpStatusCode_d < 300),\n    Failures = countif(httpStatusCode_d >= 400)\n    by bin(TimeGenerated, 1h)\n| order by TimeGenerated asc\n",
+        "size": 0,
+        "title": "Vault Operations Over Time (Success vs Failures)",
+        "timeContext": {
+          "durationMs": 86400000
+        },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
+        "visualization": "timechart"
+      },
+      "name": "kv-ops-trend"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Top operations by volume\nAzureDiagnostics\n| where TimeGenerated {timeRange}\n| where ResourceProvider == 'MICROSOFT.KEYVAULT'\n| summarize Count = count() by OperationName\n| top 15 by Count desc\n",
+        "size": 0,
+        "title": "Top Key Vault Operations",
+        "timeContext": {
+          "durationMs": 86400000
+        },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
+        "visualization": "barchart"
+      },
+      "name": "top-kv-ops"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Access & Authentication"
+      },
+      "name": "access-header"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Unauthorized access attempts (403 / 401)\nAzureDiagnostics\n| where TimeGenerated {timeRange}\n| where ResourceProvider == 'MICROSOFT.KEYVAULT'\n| where httpStatusCode_d == 403 or httpStatusCode_d == 401\n| summarize FailureCount = count() by Resource, OperationName, CallerIPAddress, identity_claim_upn_s\n| top 25 by FailureCount desc\n| project Vault = Resource, Operation = OperationName, CallerIP = CallerIPAddress, UPN = identity_claim_upn_s, FailureCount\n",
+        "size": 0,
+        "title": "Unauthorized Access Attempts (401 / 403)",
+        "timeContext": {
+          "durationMs": 86400000
+        },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
+        "visualization": "table"
+      },
+      "name": "unauthorized-access"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Secret and key access by caller identity\nAzureDiagnostics\n| where TimeGenerated {timeRange}\n| where ResourceProvider == 'MICROSOFT.KEYVAULT'\n| where OperationName in ('SecretGet', 'SecretList', 'KeySign', 'KeyDecrypt', 'KeyEncrypt', 'CertificateGet')\n| summarize AccessCount = count() by OperationName, identity_claim_upn_s, CallerIPAddress, Resource\n| top 25 by AccessCount desc\n| project Vault = Resource, Operation = OperationName, Identity = identity_claim_upn_s, CallerIP = CallerIPAddress, AccessCount\n",
+        "size": 0,
+        "title": "Secret / Key / Certificate Access by Identity",
+        "timeContext": {
+          "durationMs": 86400000
+        },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
+        "visualization": "table"
+      },
+      "name": "secret-key-access"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Throttling & Latency"
+      },
+      "name": "throttle-header"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Throttled requests (HTTP 429) over time\nAzureDiagnostics\n| where TimeGenerated {timeRange}\n| where ResourceProvider == 'MICROSOFT.KEYVAULT'\n| where httpStatusCode_d == 429\n| summarize ThrottledCount = count() by bin(TimeGenerated, 1h), Resource\n| order by TimeGenerated asc\n",
+        "size": 0,
+        "title": "Throttled Requests (429) Over Time",
+        "timeContext": {
+          "durationMs": 86400000
+        },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
+        "visualization": "timechart"
+      },
+      "name": "kv-throttled"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Vault operation latency percentiles\nAzureDiagnostics\n| where TimeGenerated {timeRange}\n| where ResourceProvider == 'MICROSOFT.KEYVAULT'\n| where isnotempty(DurationMs)\n| summarize\n    P50 = percentile(DurationMs, 50),\n    P95 = percentile(DurationMs, 95),\n    P99 = percentile(DurationMs, 99)\n    by bin(TimeGenerated, 1h)\n| order by TimeGenerated asc\n",
+        "size": 0,
+        "title": "Vault Operation Latency (P50 / P95 / P99)",
+        "timeContext": {
+          "durationMs": 86400000
+        },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
+        "visualization": "timechart"
+      },
+      "name": "kv-latency"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Expiring Secrets & Certificates"
+      },
+      "name": "expiry-header"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Recent vault management operations (create, delete, update, purge)\nAzureDiagnostics\n| where TimeGenerated {timeRange}\n| where ResourceProvider == 'MICROSOFT.KEYVAULT'\n| where OperationName has_any ('SecretSet', 'SecretDelete', 'KeyCreate', 'KeyDelete', 'CertificateImport', 'CertificateDelete', 'SecretPurge', 'KeyPurge')\n| project TimeGenerated, Vault = Resource, Operation = OperationName, Identity = identity_claim_upn_s, CallerIP = CallerIPAddress, Status = ResultSignature\n| order by TimeGenerated desc\n| take 50\n",
+        "size": 0,
+        "title": "Recent Vault Management Events (Create / Delete / Purge)",
+        "timeContext": {
+          "durationMs": 86400000
+        },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
+        "visualization": "table"
+      },
+      "name": "kv-management-events"
+    }
+  ],
+  "fallbackResourceIds": [
+    "__WORKSPACE_ID__"
+  ],
+  "$schema": "https://github.com/Microsoft/Application-Insights-Workbooks/blob/master/schema/workbook.json"
+}

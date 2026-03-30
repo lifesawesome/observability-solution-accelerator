@@ -1,0 +1,205 @@
+{
+  "version": "Notebook/1.0",
+  "items": [
+    {
+      "type": 1,
+      "content": {
+        "json": "# SQL Database Logs\n\nAzure SQL diagnostics covering query performance, deadlocks, connection failures, DTU/vCore utilization, and security audit events."
+      },
+      "name": "header"
+    },
+    {
+      "type": 9,
+      "content": {
+        "version": "KqlParameterItem/1.0",
+        "parameters": [
+          {
+            "id": "timeRange",
+            "type": 4,
+            "label": "Time Range",
+            "value": {
+              "durationMs": 86400000
+            },
+            "name": "timeRange"
+          },
+          {
+            "id": "subscription",
+            "type": 6,
+            "multiSelect": true,
+            "label": "Subscription",
+            "value": [
+              "__SUBSCRIPTION_ID__"
+            ],
+            "name": "subscription"
+          }
+        ]
+      },
+      "name": "parameters"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Query Performance"
+      },
+      "name": "perf-header"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Top long-running queries by average duration\nAzureDiagnostics\n| where TimeGenerated {timeRange}\n| where ResourceProvider == 'MICROSOFT.SQL'\n| where Category == 'QueryStoreRuntimeStatistics'\n| summarize\n    AvgDurationMs = avg(duration_d),\n    MaxDurationMs = max(duration_d),\n    ExecutionCount = sum(count_executions_d)\n    by query_id_d, Resource\n| top 20 by AvgDurationMs desc\n| project Database = Resource, QueryId = tostring(toint(query_id_d)), AvgDurationMs = round(AvgDurationMs, 1), MaxDurationMs = round(MaxDurationMs, 1), ExecutionCount = toint(ExecutionCount)\n",
+        "size": 0,
+        "title": "Top 20 Slowest Queries (Avg Duration)",
+        "timeContext": {
+          "durationMs": 86400000
+        },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
+        "visualization": "table"
+      },
+      "name": "slow-queries"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Query execution count trend over time\nAzureDiagnostics\n| where TimeGenerated {timeRange}\n| where ResourceProvider == 'MICROSOFT.SQL'\n| where Category == 'QueryStoreRuntimeStatistics'\n| summarize TotalExecutions = sum(count_executions_d) by bin(TimeGenerated, 1h), Resource\n| order by TimeGenerated asc\n",
+        "size": 0,
+        "title": "Query Executions Over Time",
+        "timeContext": {
+          "durationMs": 86400000
+        },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
+        "visualization": "timechart"
+      },
+      "name": "query-exec-trend"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Resource Utilization"
+      },
+      "name": "util-header"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// DTU / CPU / IO utilization from AzureMetrics\nAzureMetrics\n| where TimeGenerated {timeRange}\n| where ResourceProvider == 'MICROSOFT.SQL'\n| where MetricName in ('dtu_consumption_percent', 'cpu_percent', 'physical_data_read_percent', 'log_write_percent')\n| summarize AvgValue = avg(Average) by bin(TimeGenerated, 15m), MetricName, Resource\n| order by TimeGenerated asc\n",
+        "size": 0,
+        "title": "DTU / CPU / IO Utilization Over Time",
+        "timeContext": {
+          "durationMs": 86400000
+        },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
+        "visualization": "timechart"
+      },
+      "name": "resource-utilization"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Connection and storage usage\nAzureMetrics\n| where TimeGenerated {timeRange}\n| where ResourceProvider == 'MICROSOFT.SQL'\n| where MetricName in ('connection_successful', 'connection_failed', 'storage_percent')\n| summarize AvgValue = avg(Average) by bin(TimeGenerated, 15m), MetricName, Resource\n| order by TimeGenerated asc\n",
+        "size": 0,
+        "title": "Connections & Storage Utilization",
+        "timeContext": {
+          "durationMs": 86400000
+        },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
+        "visualization": "timechart"
+      },
+      "name": "connections-storage"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Errors & Deadlocks"
+      },
+      "name": "errors-header"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// SQL errors by error number and database\nAzureDiagnostics\n| where TimeGenerated {timeRange}\n| where ResourceProvider == 'MICROSOFT.SQL'\n| where Category == 'Errors'\n| summarize ErrorCount = count() by error_number_d, Resource, Message\n| top 20 by ErrorCount desc\n| project Database = Resource, ErrorNumber = toint(error_number_d), Message = substring(Message, 0, 120), ErrorCount\n",
+        "size": 0,
+        "title": "Top SQL Errors",
+        "timeContext": {
+          "durationMs": 86400000
+        },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
+        "visualization": "table"
+      },
+      "name": "sql-errors"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Deadlocks over time\nAzureDiagnostics\n| where TimeGenerated {timeRange}\n| where ResourceProvider == 'MICROSOFT.SQL'\n| where Category == 'Deadlocks'\n| summarize DeadlockCount = count() by bin(TimeGenerated, 1h), Resource\n| order by TimeGenerated asc\n",
+        "size": 0,
+        "title": "Deadlocks Over Time",
+        "timeContext": {
+          "durationMs": 86400000
+        },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
+        "visualization": "timechart"
+      },
+      "name": "deadlocks"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Security Audit"
+      },
+      "name": "security-header"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// SQL security audit events \u2014 failed logins and permission denials\nAzureDiagnostics\n| where TimeGenerated {timeRange}\n| where ResourceProvider == 'MICROSOFT.SQL'\n| where Category == 'SQLSecurityAuditEvents'\n| where action_name_s has_any ('DATABASE_AUTHENTICATION_FAILED', 'FAILED_DATABASE_AUTHENTICATION_GROUP')\n| summarize FailCount = count() by server_principal_name_s, client_ip_s, Resource\n| top 20 by FailCount desc\n| project Database = Resource, Principal = server_principal_name_s, ClientIP = client_ip_s, FailCount\n",
+        "size": 0,
+        "title": "Failed Authentication Attempts",
+        "timeContext": {
+          "durationMs": 86400000
+        },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
+        "visualization": "table"
+      },
+      "name": "sql-audit-failures"
+    }
+  ],
+  "fallbackResourceIds": [
+    "__WORKSPACE_ID__"
+  ],
+  "$schema": "https://github.com/Microsoft/Application-Insights-Workbooks/blob/master/schema/workbook.json"
+}

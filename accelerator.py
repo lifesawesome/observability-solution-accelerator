@@ -3,15 +3,16 @@
 Observability Solution Accelerator — One-Command Experience
 
 Customer Journey:
-  Step 1 (Discovery Only — no infra, no cost):
+  Step 1 (Discovery + Dashboards — creates workspace + deploys workbooks):
     python accelerator.py --subscription-id <SUB_ID> --customer-name <NAME> --discovery-only
 
     What happens:
       a. Authenticates to Azure (az login required)
       b. Scans every resource in the subscription
       c. Checks network posture (publicNetworkAccess, private endpoints)
-      d. Generates workbook JSON dashboards for discovered resource types
-      e. Prints a full report: resources, network warnings, recommended flags
+      d. Creates a resource group + Log Analytics workspace
+      e. Generates and deploys workbook dashboards for all discovered resources
+      f. Prints a full report: resources, network warnings, recommended flags
 
   Step 2 (Deploy — creates Log Analytics + wires diagnostics + dashboards):
     python accelerator.py --subscription-id <SUB_ID> --customer-name <NAME> \\
@@ -32,6 +33,7 @@ Prerequisites:
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -116,10 +118,109 @@ def step_generate_workbooks(args, discovery_file, workspace_id):
     return output_dir
 
 
-def step_generate_tfvars(args, discovery_file, workbook_dir):
-    """Step 3: Generate a .tfvars file from discovery output."""
+def _az_cmd() -> str:
+    """Return the correct az CLI executable for the current platform."""
+    return shutil.which("az") or "az"
+
+
+def step_provision_workspace(args, subscription_id):
+    """Create the resource group and Log Analytics workspace if they don't exist.
+
+    Returns the workspace resource ID, or None on failure.
+    """
     print("\n" + "=" * 70)
-    print("  STEP 3: Generating Terraform .tfvars from discovery")
+    print("  STEP 3: Provisioning resource group + Log Analytics workspace")
+    print("=" * 70)
+
+    az = _az_cmd()
+    rg = args.resource_group
+    ws_name = f"la-{args.customer_name}-obs"
+    location = args.location
+
+    if args.dry_run:
+        print(f"    [DRY RUN] Would create RG '{rg}' and workspace '{ws_name}' in {location}")
+        return f"/subscriptions/{subscription_id}/resourceGroups/{rg}/providers/Microsoft.OperationalInsights/workspaces/{ws_name}"
+
+    # --- Resource group ---------------------------------------------------
+    print(f"\n    Checking resource group '{rg}'...")
+    rc = subprocess.run(
+        [az, "group", "show", "--name", rg, "--subscription", subscription_id],
+        capture_output=True,
+    ).returncode
+    if rc != 0:
+        print(f"    Creating resource group '{rg}' in '{location}'...")
+        result = subprocess.run(
+            [az, "group", "create", "--name", rg, "--location", location,
+             "--subscription", subscription_id],
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0:
+            print(f"    ERROR: Failed to create resource group.\n    {result.stderr.strip()}")
+            return None
+        print(f"    Resource group '{rg}' created.")
+    else:
+        print(f"    Resource group '{rg}' already exists.")
+
+    # --- Log Analytics workspace ------------------------------------------
+    print(f"\n    Checking workspace '{ws_name}'...")
+    result = subprocess.run(
+        [az, "monitor", "log-analytics", "workspace", "show",
+         "--workspace-name", ws_name, "--resource-group", rg,
+         "--subscription", subscription_id],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        print(f"    Creating workspace '{ws_name}' in '{location}'...")
+        result = subprocess.run(
+            [az, "monitor", "log-analytics", "workspace", "create",
+             "--workspace-name", ws_name, "--resource-group", rg,
+             "--location", location, "--subscription", subscription_id],
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0:
+            print(f"    ERROR: Failed to create workspace.\n    {result.stderr.strip()}")
+            return None
+        print(f"    Workspace '{ws_name}' created.")
+    else:
+        print(f"    Workspace '{ws_name}' already exists.")
+
+    workspace_id = (
+        f"/subscriptions/{subscription_id}/resourceGroups/{rg}"
+        f"/providers/Microsoft.OperationalInsights/workspaces/{ws_name}"
+    )
+    print(f"    Workspace ID: {workspace_id}")
+    return workspace_id
+
+
+def step_deploy_workbooks(args, workbook_dir):
+    """Deploy generated workbooks to Azure via the deploy script."""
+    print("\n" + "=" * 70)
+    print("  STEP 4: Deploying workbooks to Azure")
+    print("=" * 70)
+
+    cmd = [
+        sys.executable,
+        str(DISCOVERY_DIR / "deploy_workbooks.py"),
+        "--resource-group", args.resource_group,
+        "--location", args.location,
+        "--manifest", str(Path(workbook_dir) / "deploy-manifest.json"),
+    ]
+    if args.dry_run:
+        cmd.append("--dry-run")
+
+    rc, stderr = run_cmd(cmd, "Deploying workbooks...", capture_stderr=True)
+    if rc != 0 and not args.dry_run:
+        print("ERROR: Workbook deployment failed.")
+        if stderr:
+            print(stderr.rstrip())
+        return False
+    return True
+
+
+def step_generate_tfvars(args, discovery_file, workbook_dir):
+    """Step 5: Generate a .tfvars file from discovery output."""
+    print("\n" + "=" * 70)
+    print("  STEP 5: Generating Terraform .tfvars from discovery")
     print("=" * 70)
 
     tfvars_path = INFRA_DIR / f"{args.customer_name}.auto.tfvars"
@@ -263,9 +364,9 @@ def step_generate_tfvars(args, discovery_file, workbook_dir):
 
 
 def step_terraform(args, tfvars_path):
-    """Step 4: Run Terraform init + plan + apply."""
+    """Step 6: Run Terraform init + plan + apply."""
     print("\n" + "=" * 70)
-    print("  STEP 4: Deploying with Terraform")
+    print("  STEP 6: Deploying with Terraform")
     print("=" * 70)
 
     tfvars_file = os.path.basename(tfvars_path)
@@ -373,9 +474,8 @@ Examples:
     print("=" * 70)
     print(f"  Subscription(s): {sub_display}")
     print(f"  Customer:        {args.customer_name}")
-    if not args.discovery_only:
-        print(f"  Resource Group:  {args.resource_group}")
-        print(f"  Region:          {args.location}")
+    print(f"  Resource Group:  {args.resource_group}")
+    print(f"  Region:          {args.location}")
     print(f"  Mode:            {mode}")
     print("=" * 70)
 
@@ -411,10 +511,24 @@ Examples:
     if workbook_dir is None:
         sys.exit(1)
 
-    # --- Discovery-only mode: stop here, show report ---------------------
+    # --- Discovery-only mode: provision workspace, deploy workbooks, show report ---
     if args.discovery_only:
+        # Step 3: Provision resource group + workspace
+        workspace_id = step_provision_workspace(args, primary_sub)
+        if workspace_id is None:
+            sys.exit(1)
+
+        # Regenerate workbooks with the real workspace ID
+        workbook_dir = step_generate_workbooks(args, discovery_file, workspace_id)
+        if workbook_dir is None:
+            sys.exit(1)
+
+        # Step 4: Deploy workbooks to Azure
+        if not step_deploy_workbooks(args, workbook_dir):
+            sys.exit(1)
+
         print("\n" + "=" * 70)
-        print("  DISCOVERY COMPLETE — No infrastructure was deployed")
+        print("  DISCOVERY + DASHBOARDS COMPLETE")
         print("=" * 70)
 
         if not args.dry_run and Path(discovery_file).exists():
@@ -456,11 +570,15 @@ Examples:
                     print(f"  service bypass. For full private link, deploy with")
                     print(f"  enable_ampls=true and provide subnet/vnet IDs.")
 
-        print(f"\n  Generated files:")
-        print(f"    Discovery:  {discovery_file}")
-        print(f"    Workbooks:  {workbook_dir}/")
+        print(f"\n  Deployed to Azure:")
+        print(f"    Resource Group: {args.resource_group}")
+        print(f"    Workspace:      la-{args.customer_name}-obs")
+        print(f"    Workbooks:      {workbook_dir}/")
+        print(f"    Discovery:      {discovery_file}")
+        print(f"\n  View dashboards in Azure Portal:")
+        print(f"    Portal > Monitor > Workbooks > filter RG: {args.resource_group}")
 
-        print(f"\n  To deploy infrastructure (Step 2):")
+        print(f"\n  To wire diagnostic settings (Step 2):")
         print(f"    python accelerator.py \\")
         if len(args.subscription_id_list) == 1:
             print(f"      --subscription-id {args.subscription_id_list[0]} \\")
@@ -469,7 +587,7 @@ Examples:
         else:
             print(f"      --tenant-scan \\")
         print(f"      --customer-name {args.customer_name} \\")
-        print(f"      --resource-group <RESOURCE_GROUP> \\")
+        print(f"      --resource-group {args.resource_group} \\")
         print(f"      --skip-discovery")
         print("=" * 70)
         return

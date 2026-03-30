@@ -17,7 +17,10 @@
             "id": "timeRange",
             "type": 4,
             "label": "Time Range",
-            "value": { "durationMs": 2592000000 }
+            "value": {
+              "durationMs": 2592000000
+            },
+            "name": "timeRange"
           }
         ]
       },

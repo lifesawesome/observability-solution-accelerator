@@ -1,0 +1,205 @@
+{
+  "version": "Notebook/1.0",
+  "items": [
+    {
+      "type": 1,
+      "content": {
+        "json": "# Cosmos DB Logs\n\nCosmos DB diagnostics covering request unit consumption, throttled requests, query performance, partition hot-spotting, and availability."
+      },
+      "name": "header"
+    },
+    {
+      "type": 9,
+      "content": {
+        "version": "KqlParameterItem/1.0",
+        "parameters": [
+          {
+            "id": "timeRange",
+            "type": 4,
+            "label": "Time Range",
+            "value": {
+              "durationMs": 86400000
+            },
+            "name": "timeRange"
+          },
+          {
+            "id": "subscription",
+            "type": 6,
+            "multiSelect": true,
+            "label": "Subscription",
+            "value": [
+              "__SUBSCRIPTION_ID__"
+            ],
+            "name": "subscription"
+          }
+        ]
+      },
+      "name": "parameters"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Request Charge & Throughput"
+      },
+      "name": "ru-header"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Total RU consumption over time by database and collection\nCDBDataPlaneRequests\n| where TimeGenerated {timeRange}\n| summarize\n    TotalRU = sum(RequestCharge),\n    RequestCount = count()\n    by bin(TimeGenerated, 15m), DatabaseName, CollectionName\n| order by TimeGenerated asc\n",
+        "size": 0,
+        "title": "RU Consumption Over Time",
+        "timeContext": {
+          "durationMs": 86400000
+        },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
+        "visualization": "timechart"
+      },
+      "name": "ru-trend"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Top operations by RU cost\nCDBDataPlaneRequests\n| where TimeGenerated {timeRange}\n| summarize\n    TotalRU = sum(RequestCharge),\n    AvgRU = avg(RequestCharge),\n    Count = count()\n    by OperationName, DatabaseName, CollectionName\n| top 20 by TotalRU desc\n| project Database = DatabaseName, Collection = CollectionName, Operation = OperationName, TotalRU = round(TotalRU, 0), AvgRU = round(AvgRU, 1), Count\n",
+        "size": 0,
+        "title": "Top 20 Operations by Total RU Cost",
+        "timeContext": {
+          "durationMs": 86400000
+        },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
+        "visualization": "table"
+      },
+      "name": "top-ru-ops"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Throttled Requests (429)"
+      },
+      "name": "throttle-header"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Throttled requests (HTTP 429) over time\nCDBDataPlaneRequests\n| where TimeGenerated {timeRange}\n| where StatusCode == 429\n| summarize ThrottledCount = count() by bin(TimeGenerated, 15m), DatabaseName, CollectionName\n| order by TimeGenerated asc\n",
+        "size": 0,
+        "title": "Throttled Requests (429) Over Time",
+        "timeContext": {
+          "durationMs": 86400000
+        },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
+        "visualization": "timechart"
+      },
+      "name": "throttled-trend"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Throttled requests by partition key range \u2014 hot partition detection\nCDBDataPlaneRequests\n| where TimeGenerated {timeRange}\n| where StatusCode == 429\n| summarize ThrottledCount = count(), AvgRU = avg(RequestCharge) by DatabaseName, CollectionName, PartitionId\n| top 20 by ThrottledCount desc\n| project Database = DatabaseName, Collection = CollectionName, Partition = PartitionId, ThrottledCount, AvgRU = round(AvgRU, 1)\n",
+        "size": 0,
+        "title": "Hot Partitions \u2014 Throttled by Partition ID",
+        "timeContext": {
+          "durationMs": 86400000
+        },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
+        "visualization": "table"
+      },
+      "name": "hot-partitions"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Latency & Errors"
+      },
+      "name": "latency-header"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// End-to-end latency percentiles (P50, P95, P99)\nCDBDataPlaneRequests\n| where TimeGenerated {timeRange}\n| where StatusCode >= 200 and StatusCode < 300\n| summarize\n    P50 = percentile(DurationMs, 50),\n    P95 = percentile(DurationMs, 95),\n    P99 = percentile(DurationMs, 99)\n    by bin(TimeGenerated, 15m)\n| order by TimeGenerated asc\n",
+        "size": 0,
+        "title": "Request Latency Percentiles (ms)",
+        "timeContext": {
+          "durationMs": 86400000
+        },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
+        "visualization": "timechart"
+      },
+      "name": "latency-percentiles"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Server-side errors (5xx) over time\nCDBDataPlaneRequests\n| where TimeGenerated {timeRange}\n| where StatusCode >= 500\n| summarize ErrorCount = count() by bin(TimeGenerated, 1h), StatusCode, OperationName\n| order by TimeGenerated asc\n",
+        "size": 0,
+        "title": "Server Errors (5xx) Over Time",
+        "timeContext": {
+          "durationMs": 86400000
+        },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
+        "visualization": "timechart"
+      },
+      "name": "server-errors"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Query Statistics"
+      },
+      "name": "query-header"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Cosmos DB query runtime statistics \u2014 expensive queries\nCDBQueryRuntimeStatistics\n| where TimeGenerated {timeRange}\n| summarize\n    AvgRU = avg(RequestCharge),\n    MaxRU = max(RequestCharge),\n    AvgDurationMs = avg(DurationMs),\n    Count = count()\n    by QueryText = substring(QueryText, 0, 200), DatabaseName, CollectionName\n| top 15 by AvgRU desc\n| project Database = DatabaseName, Collection = CollectionName, QueryText, AvgRU = round(AvgRU, 1), MaxRU = round(MaxRU, 1), AvgDurationMs = round(AvgDurationMs, 1), Count\n",
+        "size": 0,
+        "title": "Most Expensive Queries by RU",
+        "timeContext": {
+          "durationMs": 86400000
+        },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
+        "visualization": "table"
+      },
+      "name": "expensive-queries"
+    }
+  ],
+  "fallbackResourceIds": [
+    "__WORKSPACE_ID__"
+  ],
+  "$schema": "https://github.com/Microsoft/Application-Insights-Workbooks/blob/master/schema/workbook.json"
+}

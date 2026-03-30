@@ -15,13 +15,20 @@ Usage:
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import uuid
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _az_cmd() -> str:
+    """Return the correct az CLI command name for the current platform."""
+    # On Windows, 'az' is actually 'az.cmd'; shutil.which handles PATH lookup
+    return shutil.which("az") or "az"
 
 def _resolve_path(path: str) -> str:
     """Return an absolute path, resolved relative to the repo root when the
@@ -58,7 +65,10 @@ def deploy_workbook(
     subscription_id: str,
     dry_run: bool,
 ) -> bool:
-    """Deploy a single workbook via ``az monitor workbook create``.
+    """Deploy a single workbook via the ARM REST API (``az rest``).
+
+    Uses ``az rest --method PUT`` to avoid Windows command-line length limits
+    and the need for the ``application-insights`` CLI extension.
 
     Returns True on success (or dry-run), False on failure.
     """
@@ -76,29 +86,48 @@ def deploy_workbook(
     # Read the serialised workbook content
     workbook_content = _load_workbook_content(manifest_dir, filename)
 
-    cmd = [
-        "az", "monitor", "workbook", "create",
-        "--resource-group", resource_group,
-        "--location", location,
-        "--name", workbook_guid,
-        "--display-name", display_name,
-        "--category", category,
-        "--kind", "shared",
-        "--subscription", subscription_id,
-        "--serialized-data", workbook_content,
-    ]
+    # ARM resource URI
+    resource_url = (
+        f"https://management.azure.com/subscriptions/{subscription_id}"
+        f"/resourceGroups/{resource_group}"
+        f"/providers/Microsoft.Insights/workbooks/{workbook_guid}"
+        f"?api-version=2022-04-01"
+    )
+
+    # ARM request body
+    body = {
+        "location": location,
+        "kind": "shared",
+        "properties": {
+            "displayName": display_name,
+            "serializedData": workbook_content,
+            "category": category,
+            "sourceId": f"/subscriptions/{subscription_id}/resourceGroups/{resource_group}",
+        },
+    }
 
     if dry_run:
-        # Print the command without executing
-        safe_cmd = list(cmd)
-        # Truncate the serialised-data value for readability
-        data_idx = safe_cmd.index("--serialized-data") + 1
-        safe_cmd[data_idx] = f"@{wb_file_path}"
-        print(f"  [DRY RUN] {' '.join(safe_cmd)}")
+        print(f"  [DRY RUN] PUT {resource_url}")
+        print(f"            displayName: {display_name}")
+        print(f"            category: {category}")
+        print(f"            source: @{wb_file_path}")
         return True
 
     print(f"  Deploying {display_name} ({workbook_guid}) ...")
+
+    # Write body to a temp file to avoid command-line length limits on Windows
+    tmp_fd, tmp_path = tempfile.mkstemp(suffix=".json", prefix="wb_")
     try:
+        with os.fdopen(tmp_fd, "w", encoding="utf-8") as fh:
+            json.dump(body, fh)
+
+        cmd = [
+            _az_cmd(), "rest",
+            "--method", "PUT",
+            "--url", resource_url,
+            "--body", f"@{tmp_path}",
+        ]
+
         result = subprocess.run(
             cmd,
             capture_output=True,
@@ -118,6 +147,8 @@ def deploy_workbook(
             file=sys.stderr,
         )
         return False
+    finally:
+        os.unlink(tmp_path)
 
 
 def deploy_all(

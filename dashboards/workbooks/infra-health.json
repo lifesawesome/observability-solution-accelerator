@@ -17,14 +17,20 @@
             "id": "timeRange",
             "type": 4,
             "label": "Time Range",
-            "value": { "durationMs": 86400000 }
+            "value": {
+              "durationMs": 86400000
+            },
+            "name": "timeRange"
           },
           {
             "id": "subscription",
             "type": 6,
             "multiSelect": true,
             "label": "Subscription",
-            "value": [ "value::all" ]
+            "value": [
+              "value::all"
+            ],
+            "name": "subscription"
           }
         ]
       },

@@ -17,14 +17,20 @@
             "id": "timeRange",
             "type": 4,
             "label": "Time Range",
-            "value": { "durationMs": 86400000 }
+            "value": {
+              "durationMs": 86400000
+            },
+            "name": "timeRange"
           },
           {
             "id": "subscription",
             "type": 6,
             "multiSelect": true,
             "label": "Subscription",
-            "value": ["__SUBSCRIPTION_ID__"]
+            "value": [
+              "__SUBSCRIPTION_ID__"
+            ],
+            "name": "subscription"
           }
         ]
       },
@@ -44,10 +50,14 @@
         "query": "// Application exceptions by type and frequency\nAppExceptions\n| where TimeGenerated {timeRange}\n| summarize ExceptionCount = count(), ImpactedUsers = dcount(UserId) by ExceptionType, ProblemId\n| top 20 by ExceptionCount desc\n| project ExceptionType, ProblemId, ExceptionCount, ImpactedUsers\n",
         "size": 0,
         "title": "Top Exceptions by Type & Frequency",
-        "timeContext": { "durationMs": 86400000 },
+        "timeContext": {
+          "durationMs": 86400000
+        },
         "queryType": 0,
         "resourceType": "microsoft.operationalinsights/workspaces",
-        "crossComponentResources": ["__WORKSPACE_ID__"],
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
         "visualization": "table"
       },
       "name": "exception-frequency"
@@ -59,10 +69,14 @@
         "query": "// Exception trend over time\nAppExceptions\n| where TimeGenerated {timeRange}\n| summarize ExceptionCount = count() by bin(TimeGenerated, 1h), ExceptionType\n| order by TimeGenerated asc\n",
         "size": 0,
         "title": "Exception Trend Over Time",
-        "timeContext": { "durationMs": 86400000 },
+        "timeContext": {
+          "durationMs": 86400000
+        },
         "queryType": 0,
         "resourceType": "microsoft.operationalinsights/workspaces",
-        "crossComponentResources": ["__WORKSPACE_ID__"],
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
         "visualization": "timechart"
       },
       "name": "exception-trend"
@@ -78,13 +92,17 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "// Request performance by operation – avg duration, failure rate, volume\nAppRequests\n| where TimeGenerated {timeRange}\n| summarize\n    RequestCount  = count(),\n    AvgDurationMs = round(avg(DurationMs), 1),\n    P95DurationMs = round(percentile(DurationMs, 95), 1),\n    FailureRate   = round(100.0 * countif(Success == false) / count(), 2)\n    by OperationName\n| top 25 by RequestCount desc\n| project OperationName, RequestCount, AvgDurationMs, P95DurationMs, FailureRate\n",
+        "query": "// Request performance by operation \u2013 avg duration, failure rate, volume\nAppRequests\n| where TimeGenerated {timeRange}\n| summarize\n    RequestCount  = count(),\n    AvgDurationMs = round(avg(DurationMs), 1),\n    P95DurationMs = round(percentile(DurationMs, 95), 1),\n    FailureRate   = round(100.0 * countif(Success == false) / count(), 2)\n    by OperationName\n| top 25 by RequestCount desc\n| project OperationName, RequestCount, AvgDurationMs, P95DurationMs, FailureRate\n",
         "size": 0,
         "title": "Request Performance by Operation",
-        "timeContext": { "durationMs": 86400000 },
+        "timeContext": {
+          "durationMs": 86400000
+        },
         "queryType": 0,
         "resourceType": "microsoft.operationalinsights/workspaces",
-        "crossComponentResources": ["__WORKSPACE_ID__"],
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
         "visualization": "table"
       },
       "name": "request-performance"
@@ -103,10 +121,14 @@
         "query": "// Dependency call failures and latency\nAppDependencies\n| where TimeGenerated {timeRange}\n| summarize\n    CallCount     = count(),\n    FailureCount  = countif(Success == false),\n    AvgDurationMs = round(avg(DurationMs), 1),\n    P95DurationMs = round(percentile(DurationMs, 95), 1)\n    by DependencyType, Target, OperationName\n| extend FailureRate = round(100.0 * FailureCount / CallCount, 2)\n| top 25 by FailureCount desc\n| project DependencyType, Target, OperationName, CallCount, FailureCount, FailureRate, AvgDurationMs, P95DurationMs\n",
         "size": 0,
         "title": "Dependency Failures & Latency",
-        "timeContext": { "durationMs": 86400000 },
+        "timeContext": {
+          "durationMs": 86400000
+        },
         "queryType": 0,
         "resourceType": "microsoft.operationalinsights/workspaces",
-        "crossComponentResources": ["__WORKSPACE_ID__"],
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
         "visualization": "table"
       },
       "name": "dependency-failures"
@@ -118,10 +140,14 @@
         "query": "// Dependency duration trend by type\nAppDependencies\n| where TimeGenerated {timeRange}\n| summarize AvgDurationMs = avg(DurationMs) by bin(TimeGenerated, 1h), DependencyType\n| order by TimeGenerated asc\n",
         "size": 0,
         "title": "Dependency Latency Trend by Type",
-        "timeContext": { "durationMs": 86400000 },
+        "timeContext": {
+          "durationMs": 86400000
+        },
         "queryType": 0,
         "resourceType": "microsoft.operationalinsights/workspaces",
-        "crossComponentResources": ["__WORKSPACE_ID__"],
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
         "visualization": "timechart"
       },
       "name": "dependency-latency-trend"
@@ -137,13 +163,17 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "// Custom event tracking – top events by volume\nAppEvents\n| where TimeGenerated {timeRange}\n| summarize EventCount = count(), UniqueUsers = dcount(UserId) by Name\n| top 20 by EventCount desc\n| project EventName = Name, EventCount, UniqueUsers\n",
+        "query": "// Custom event tracking \u2013 top events by volume\nAppEvents\n| where TimeGenerated {timeRange}\n| summarize EventCount = count(), UniqueUsers = dcount(UserId) by Name\n| top 20 by EventCount desc\n| project EventName = Name, EventCount, UniqueUsers\n",
         "size": 0,
         "title": "Custom Events by Volume",
-        "timeContext": { "durationMs": 86400000 },
+        "timeContext": {
+          "durationMs": 86400000
+        },
         "queryType": 0,
         "resourceType": "microsoft.operationalinsights/workspaces",
-        "crossComponentResources": ["__WORKSPACE_ID__"],
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
         "visualization": "barchart"
       },
       "name": "custom-events"
@@ -155,15 +185,21 @@
         "query": "// Trace logs severity distribution\nAppTraces\n| where TimeGenerated {timeRange}\n| summarize TraceCount = count() by SeverityLevel\n| extend Severity = case(\n    SeverityLevel == 0, 'Verbose',\n    SeverityLevel == 1, 'Information',\n    SeverityLevel == 2, 'Warning',\n    SeverityLevel == 3, 'Error',\n    SeverityLevel == 4, 'Critical',\n    strcat('Level ', tostring(SeverityLevel))\n  )\n| project Severity, SeverityLevel, TraceCount\n| order by SeverityLevel asc\n",
         "size": 0,
         "title": "Trace Severity Distribution",
-        "timeContext": { "durationMs": 86400000 },
+        "timeContext": {
+          "durationMs": 86400000
+        },
         "queryType": 0,
         "resourceType": "microsoft.operationalinsights/workspaces",
-        "crossComponentResources": ["__WORKSPACE_ID__"],
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
         "visualization": "piechart"
       },
       "name": "trace-severity"
     }
   ],
-  "fallbackResourceIds": ["__WORKSPACE_ID__"],
+  "fallbackResourceIds": [
+    "__WORKSPACE_ID__"
+  ],
   "$schema": "https://github.com/Microsoft/Application-Insights-Workbooks/blob/master/schema/workbook.json"
 }

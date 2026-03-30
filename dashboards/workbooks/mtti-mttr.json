@@ -4,7 +4,7 @@
     {
       "type": 1,
       "content": {
-        "json": "# MTTI / MTTR Dashboard\n\nMean Time to Identify and Mean Time to Resolve — the two north-star KPIs for this accelerator.\n\n> This workbook expects a ServiceNow incident export table (`ServiceNowIncidents_CL`) synced to Log Analytics via Logic App or Data Connector."
+        "json": "# MTTI / MTTR Dashboard\n\nMean Time to Identify and Mean Time to Resolve \u2014 the two north-star KPIs for this accelerator.\n\n> This workbook expects a ServiceNow incident export table (`ServiceNowIncidents_CL`) synced to Log Analytics via Logic App or Data Connector."
       },
       "name": "header"
     },
@@ -18,15 +18,26 @@
             "type": 4,
             "typeSettings": {
               "selectableValues": [
-                { "durationMs": 3600000 },
-                { "durationMs": 86400000 },
-                { "durationMs": 604800000 },
-                { "durationMs": 2592000000 }
+                {
+                  "durationMs": 3600000
+                },
+                {
+                  "durationMs": 86400000
+                },
+                {
+                  "durationMs": 604800000
+                },
+                {
+                  "durationMs": 2592000000
+                }
               ],
               "allowCustom": true
             },
             "label": "Time Range",
-            "value": { "durationMs": 2592000000 }
+            "value": {
+              "durationMs": 2592000000
+            },
+            "name": "timeRange"
           },
           {
             "id": "severity",
@@ -34,7 +45,10 @@
             "multiSelect": true,
             "label": "Severity",
             "query": "ServiceNowIncidents_CL | distinct Severity_s",
-            "value": [ "value::all" ]
+            "value": [
+              "value::all"
+            ],
+            "name": "severity"
           }
         ]
       },
@@ -49,8 +63,13 @@
         "title": "Summary Tiles",
         "visualization": "tiles",
         "tileSettings": {
-          "titleContent": { "columnMatch": "Column1" },
-          "leftContent": { "columnMatch": "Column2", "formatter": 12 }
+          "titleContent": {
+            "columnMatch": "Column1"
+          },
+          "leftContent": {
+            "columnMatch": "Column2",
+            "formatter": 12
+          }
         }
       },
       "name": "summary-tiles"
@@ -65,9 +84,14 @@
         "visualization": "linechart",
         "chartSettings": {
           "xAxis": "CreatedTime_t",
-          "yAxis": [ "AvgMTTI" ],
+          "yAxis": [
+            "AvgMTTI"
+          ],
           "seriesLabelSettings": [
-            { "seriesName": "AvgMTTI", "label": "Avg MTTI (min)" }
+            {
+              "seriesName": "AvgMTTI",
+              "label": "Avg MTTI (min)"
+            }
           ]
         }
       },
@@ -83,9 +107,14 @@
         "visualization": "linechart",
         "chartSettings": {
           "xAxis": "CreatedTime_t",
-          "yAxis": [ "AvgMTTR" ],
+          "yAxis": [
+            "AvgMTTR"
+          ],
           "seriesLabelSettings": [
-            { "seriesName": "AvgMTTR", "label": "Avg MTTR (min)" }
+            {
+              "seriesName": "AvgMTTR",
+              "label": "Avg MTTR (min)"
+            }
           ]
         }
       },

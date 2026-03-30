@@ -17,7 +17,10 @@
             "id": "timeRange",
             "type": 4,
             "label": "Time Range",
-            "value": { "durationMs": 2592000000 }
+            "value": {
+              "durationMs": 2592000000
+            },
+            "name": "timeRange"
           }
         ]
       },
@@ -44,9 +47,18 @@
         "visualization": "barchart",
         "chartSettings": {
           "seriesLabelSettings": [
-            { "seriesName": "High", "color": "redBright" },
-            { "seriesName": "Medium", "color": "orange" },
-            { "seriesName": "Low", "color": "blue" }
+            {
+              "seriesName": "High",
+              "color": "redBright"
+            },
+            {
+              "seriesName": "Medium",
+              "color": "orange"
+            },
+            {
+              "seriesName": "Low",
+              "color": "blue"
+            }
           ]
         }
       },
@@ -89,7 +101,7 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "// Mean Time to Triage (alert → incident)\nSecurityIncident\n| where TimeGenerated {timeRange}\n| extend AlertTime = todatetime(AdditionalData.alertProductNames)\n| where isnotempty(CreatedTime) and isnotempty(FirstActivityTime)\n| extend TriageMinutes = datetime_diff('minute', CreatedTime, FirstActivityTime)\n| summarize AvgTriage = avg(TriageMinutes), MedianTriage = percentile(TriageMinutes, 50)\n",
+        "query": "// Mean Time to Triage (alert \u2192 incident)\nSecurityIncident\n| where TimeGenerated {timeRange}\n| extend AlertTime = todatetime(AdditionalData.alertProductNames)\n| where isnotempty(CreatedTime) and isnotempty(FirstActivityTime)\n| extend TriageMinutes = datetime_diff('minute', CreatedTime, FirstActivityTime)\n| summarize AvgTriage = avg(TriageMinutes), MedianTriage = percentile(TriageMinutes, 50)\n",
         "size": 4,
         "title": "Mean Time to Triage",
         "visualization": "tiles"

@@ -44,6 +44,41 @@ WORKBOOK_RULES: dict[str, dict] = {
         "category": "application",
         "display_name": "Application Logs",
     },
+    "storage-logs": {
+        "triggers": [
+            "storage_accounts",
+        ],
+        "category": "storage",
+        "display_name": "Storage Logs",
+    },
+    "key-vault-logs": {
+        "triggers": [
+            "key_vaults",
+        ],
+        "category": "security",
+        "display_name": "Key Vault Logs",
+    },
+    "sql-logs": {
+        "triggers": [
+            "sql_databases",
+        ],
+        "category": "database",
+        "display_name": "SQL Database Logs",
+    },
+    "cosmos-db-logs": {
+        "triggers": [
+            "cosmos_db",
+        ],
+        "category": "database",
+        "display_name": "Cosmos DB Logs",
+    },
+    "logic-app-logs": {
+        "triggers": [
+            "logic_apps",
+        ],
+        "category": "integration",
+        "display_name": "Logic App Logs",
+    },
     "vm-logs": {
         "triggers": [
             "virtual_machines",
@@ -65,6 +100,54 @@ WORKBOOK_RULES: dict[str, dict] = {
         ],
         "category": "iot",
         "display_name": "IoT Logs",
+    },
+    "security-posture": {
+        "triggers": [
+            "network_security_groups",
+            "key_vaults",
+            "virtual_machines",
+            "storage_accounts",
+            "sql_databases",
+        ],
+        "category": "security",
+        "display_name": "Security Posture",
+    },
+    "infra-health": {
+        "triggers": [
+            "virtual_machines",
+            "vmss",
+            "aks_clusters",
+            "app_services",
+            "function_apps",
+            "storage_accounts",
+            "sql_databases",
+            "cosmos_db",
+            "key_vaults",
+            "logic_apps",
+        ],
+        "category": "infrastructure",
+        "display_name": "Infrastructure Health",
+    },
+    "cost-usage": {
+        "triggers": [
+            "storage_accounts",
+            "sql_databases",
+            "cosmos_db",
+            "virtual_machines",
+            "aks_clusters",
+            "app_services",
+            "function_apps",
+        ],
+        "category": "cost",
+        "display_name": "Cost & Usage",
+    },
+    "app-performance": {
+        "triggers": [
+            "app_services",
+            "function_apps",
+        ],
+        "category": "performance",
+        "display_name": "Application Performance",
     },
 }
 
@@ -149,7 +232,9 @@ def determine_workbooks(discovery: dict) -> list[dict]:
     Returns a list of dicts, each containing the rule metadata plus the list
     of matched trigger categories.
     """
-    discovered_categories = set(discovery.get("resources", {}).keys())
+    # Support both single-sub ("resources") and multi-sub ("merged_resources") output
+    resources = discovery.get("merged_resources") or discovery.get("resources", {})
+    discovered_categories = set(resources.keys())
     results: list[dict] = []
 
     for name, rule in WORKBOOK_RULES.items():

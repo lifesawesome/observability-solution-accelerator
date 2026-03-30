@@ -17,14 +17,20 @@
             "id": "timeRange",
             "type": 4,
             "label": "Time Range",
-            "value": { "durationMs": 86400000 }
+            "value": {
+              "durationMs": 86400000
+            },
+            "name": "timeRange"
           },
           {
             "id": "subscription",
             "type": 6,
             "multiSelect": true,
             "label": "Subscription",
-            "value": ["__SUBSCRIPTION_ID__"]
+            "value": [
+              "__SUBSCRIPTION_ID__"
+            ],
+            "name": "subscription"
           }
         ]
       },
@@ -33,7 +39,7 @@
     {
       "type": 1,
       "content": {
-        "json": "## NSG Flow Logs — Top Talkers"
+        "json": "## NSG Flow Logs \u2014 Top Talkers"
       },
       "name": "nsg-header"
     },
@@ -41,13 +47,17 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "// NSG Flow Log summary – top source IPs by flow count, split by allowed vs denied\nAzureNetworkAnalytics_CL\n| where TimeGenerated {timeRange}\n| where SubType_s == 'FlowLog'\n| summarize\n    AllowedFlows = countif(FlowStatus_s == 'A'),\n    DeniedFlows  = countif(FlowStatus_s == 'D')\n    by SrcIP_s\n| extend TotalFlows = AllowedFlows + DeniedFlows\n| top 20 by TotalFlows desc\n| project SourceIP = SrcIP_s, AllowedFlows, DeniedFlows, TotalFlows\n",
+        "query": "// NSG Flow Log summary \u2013 top source IPs by flow count, split by allowed vs denied\nAzureNetworkAnalytics_CL\n| where TimeGenerated {timeRange}\n| where SubType_s == 'FlowLog'\n| summarize\n    AllowedFlows = countif(FlowStatus_s == 'A'),\n    DeniedFlows  = countif(FlowStatus_s == 'D')\n    by SrcIP_s\n| extend TotalFlows = AllowedFlows + DeniedFlows\n| top 20 by TotalFlows desc\n| project SourceIP = SrcIP_s, AllowedFlows, DeniedFlows, TotalFlows\n",
         "size": 0,
         "title": "Top 20 Source IPs by Flow Count",
-        "timeContext": { "durationMs": 86400000 },
+        "timeContext": {
+          "durationMs": 86400000
+        },
         "queryType": 0,
         "resourceType": "microsoft.operationalinsights/workspaces",
-        "crossComponentResources": ["__WORKSPACE_ID__"],
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
         "visualization": "table"
       },
       "name": "nsg-top-talkers"
@@ -59,10 +69,14 @@
         "query": "// Allowed vs Denied flow trend over time\nAzureNetworkAnalytics_CL\n| where TimeGenerated {timeRange}\n| where SubType_s == 'FlowLog'\n| summarize\n    Allowed = countif(FlowStatus_s == 'A'),\n    Denied  = countif(FlowStatus_s == 'D')\n    by bin(TimeGenerated, 1h)\n| order by TimeGenerated asc\n",
         "size": 0,
         "title": "Allowed vs Denied Flows Over Time",
-        "timeContext": { "durationMs": 86400000 },
+        "timeContext": {
+          "durationMs": 86400000
+        },
         "queryType": 0,
         "resourceType": "microsoft.operationalinsights/workspaces",
-        "crossComponentResources": ["__WORKSPACE_ID__"],
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
         "visualization": "timechart"
       },
       "name": "nsg-allowed-denied-trend"
@@ -81,10 +95,14 @@
         "query": "// Failed connections by destination IP and port\nAzureNetworkAnalytics_CL\n| where TimeGenerated {timeRange}\n| where SubType_s == 'FlowLog' and FlowStatus_s == 'D'\n| summarize DeniedCount = count() by DestIP_s, DestPort_d, NSGRule_s\n| top 25 by DeniedCount desc\n| project Destination = DestIP_s, Port = toint(DestPort_d), NSGRule = NSGRule_s, DeniedCount\n",
         "size": 0,
         "title": "Top Denied Connections by Destination",
-        "timeContext": { "durationMs": 86400000 },
+        "timeContext": {
+          "durationMs": 86400000
+        },
         "queryType": 0,
         "resourceType": "microsoft.operationalinsights/workspaces",
-        "crossComponentResources": ["__WORKSPACE_ID__"],
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
         "visualization": "table"
       },
       "name": "denied-connections"
@@ -93,13 +111,17 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "// Bandwidth utilization – bytes in/out by source/destination pair (top 15)\nAzureNetworkAnalytics_CL\n| where TimeGenerated {timeRange}\n| where SubType_s == 'FlowLog'\n| summarize\n    BytesSrcToDst = sum(BytesSrcToDst_d),\n    BytesDstToSrc = sum(BytesDstToSrc_d)\n    by SrcIP_s, DestIP_s\n| extend TotalBytes = BytesSrcToDst + BytesDstToSrc\n| top 15 by TotalBytes desc\n| project Source = SrcIP_s, Destination = DestIP_s,\n         SentMB = round(BytesSrcToDst / 1048576.0, 2),\n         ReceivedMB = round(BytesDstToSrc / 1048576.0, 2),\n         TotalMB = round(TotalBytes / 1048576.0, 2)\n",
+        "query": "// Bandwidth utilization \u2013 bytes in/out by source/destination pair (top 15)\nAzureNetworkAnalytics_CL\n| where TimeGenerated {timeRange}\n| where SubType_s == 'FlowLog'\n| summarize\n    BytesSrcToDst = sum(BytesSrcToDst_d),\n    BytesDstToSrc = sum(BytesDstToSrc_d)\n    by SrcIP_s, DestIP_s\n| extend TotalBytes = BytesSrcToDst + BytesDstToSrc\n| top 15 by TotalBytes desc\n| project Source = SrcIP_s, Destination = DestIP_s,\n         SentMB = round(BytesSrcToDst / 1048576.0, 2),\n         ReceivedMB = round(BytesDstToSrc / 1048576.0, 2),\n         TotalMB = round(TotalBytes / 1048576.0, 2)\n",
         "size": 0,
-        "title": "Bandwidth Utilization — Top Source/Destination Pairs",
-        "timeContext": { "durationMs": 86400000 },
+        "title": "Bandwidth Utilization \u2014 Top Source/Destination Pairs",
+        "timeContext": {
+          "durationMs": 86400000
+        },
         "queryType": 0,
         "resourceType": "microsoft.operationalinsights/workspaces",
-        "crossComponentResources": ["__WORKSPACE_ID__"],
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
         "visualization": "table"
       },
       "name": "bandwidth-utilization"
@@ -108,13 +130,17 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "// Firewall rule hit analysis – AzureDiagnostics for Azure Firewall\nAzureDiagnostics\n| where TimeGenerated {timeRange}\n| where Category == 'AzureFirewallNetworkRule' or Category == 'AzureFirewallApplicationRule'\n| extend RuleAction = extract(@\"Action:\\s*(\\w+)\", 1, msg_s)\n| summarize HitCount = count() by Category, RuleAction, Resource\n| order by HitCount desc\n",
+        "query": "// Firewall rule hit analysis \u2013 AzureDiagnostics for Azure Firewall\nAzureDiagnostics\n| where TimeGenerated {timeRange}\n| where Category == 'AzureFirewallNetworkRule' or Category == 'AzureFirewallApplicationRule'\n| extend RuleAction = extract(@\"Action:\\s*(\\w+)\", 1, msg_s)\n| summarize HitCount = count() by Category, RuleAction, Resource\n| order by HitCount desc\n",
         "size": 0,
         "title": "Firewall Rule Hit Analysis",
-        "timeContext": { "durationMs": 86400000 },
+        "timeContext": {
+          "durationMs": 86400000
+        },
         "queryType": 0,
         "resourceType": "microsoft.operationalinsights/workspaces",
-        "crossComponentResources": ["__WORKSPACE_ID__"],
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
         "visualization": "barchart"
       },
       "name": "firewall-rule-hits"
@@ -133,10 +159,14 @@
         "query": "// DNS resolution failures from Azure Diagnostics\nAzureDiagnostics\n| where TimeGenerated {timeRange}\n| where Category == 'DnsAnalyticsLog'\n| where ResponseCode_s != 'NOERROR' and ResponseCode_s != ''\n| summarize FailureCount = count() by QueryName_s, ResponseCode_s, ClientIP_s\n| top 25 by FailureCount desc\n| project QueryName = QueryName_s, ResponseCode = ResponseCode_s, ClientIP = ClientIP_s, FailureCount\n",
         "size": 0,
         "title": "DNS Resolution Failures",
-        "timeContext": { "durationMs": 86400000 },
+        "timeContext": {
+          "durationMs": 86400000
+        },
         "queryType": 0,
         "resourceType": "microsoft.operationalinsights/workspaces",
-        "crossComponentResources": ["__WORKSPACE_ID__"],
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
         "visualization": "table"
       },
       "name": "dns-failures"
@@ -145,18 +175,24 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "// Network Connection Monitor – test results over time\nNWConnectionMonitorTestResult\n| where TimeGenerated {timeRange}\n| summarize\n    SuccessCount = countif(TestResult == 'Pass'),\n    FailCount    = countif(TestResult == 'Fail'),\n    AvgLatencyMs = avg(AvgRoundTripTimeMs)\n    by bin(TimeGenerated, 1h), TestGroupName\n| order by TimeGenerated asc\n",
+        "query": "// Network Connection Monitor \u2013 test results over time\nNWConnectionMonitorTestResult\n| where TimeGenerated {timeRange}\n| summarize\n    SuccessCount = countif(TestResult == 'Pass'),\n    FailCount    = countif(TestResult == 'Fail'),\n    AvgLatencyMs = avg(AvgRoundTripTimeMs)\n    by bin(TimeGenerated, 1h), TestGroupName\n| order by TimeGenerated asc\n",
         "size": 0,
         "title": "Connection Monitor Test Results Over Time",
-        "timeContext": { "durationMs": 86400000 },
+        "timeContext": {
+          "durationMs": 86400000
+        },
         "queryType": 0,
         "resourceType": "microsoft.operationalinsights/workspaces",
-        "crossComponentResources": ["__WORKSPACE_ID__"],
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
         "visualization": "timechart"
       },
       "name": "connection-monitor-trend"
     }
   ],
-  "fallbackResourceIds": ["__WORKSPACE_ID__"],
+  "fallbackResourceIds": [
+    "__WORKSPACE_ID__"
+  ],
   "$schema": "https://github.com/Microsoft/Application-Insights-Workbooks/blob/master/schema/workbook.json"
 }

@@ -1,0 +1,205 @@
+{
+  "version": "Notebook/1.0",
+  "items": [
+    {
+      "type": 1,
+      "content": {
+        "json": "# Storage Account Logs\n\nStorage account diagnostics covering read/write/delete operations, authentication failures, latency trends, and capacity utilization."
+      },
+      "name": "header"
+    },
+    {
+      "type": 9,
+      "content": {
+        "version": "KqlParameterItem/1.0",
+        "parameters": [
+          {
+            "id": "timeRange",
+            "type": 4,
+            "label": "Time Range",
+            "value": {
+              "durationMs": 86400000
+            },
+            "name": "timeRange"
+          },
+          {
+            "id": "subscription",
+            "type": 6,
+            "multiSelect": true,
+            "label": "Subscription",
+            "value": [
+              "__SUBSCRIPTION_ID__"
+            ],
+            "name": "subscription"
+          }
+        ]
+      },
+      "name": "parameters"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Storage Operations Overview"
+      },
+      "name": "ops-header"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Storage operations by type and status over time\nStorageBlobLogs\n| where TimeGenerated {timeRange}\n| summarize\n    SuccessCount = countif(StatusCode >= 200 and StatusCode < 300),\n    ClientErrors = countif(StatusCode >= 400 and StatusCode < 500),\n    ServerErrors = countif(StatusCode >= 500)\n    by bin(TimeGenerated, 1h), OperationName\n| order by TimeGenerated asc\n",
+        "size": 0,
+        "title": "Blob Operations Over Time (Success / Client Error / Server Error)",
+        "timeContext": {
+          "durationMs": 86400000
+        },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
+        "visualization": "timechart"
+      },
+      "name": "blob-ops-trend"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Top storage operations by volume\nStorageBlobLogs\n| where TimeGenerated {timeRange}\n| summarize RequestCount = count(), AvgLatencyMs = avg(DurationMs) by OperationName\n| top 20 by RequestCount desc\n| project Operation = OperationName, RequestCount, AvgLatencyMs = round(AvgLatencyMs, 1)\n",
+        "size": 0,
+        "title": "Top 20 Blob Operations by Request Count",
+        "timeContext": {
+          "durationMs": 86400000
+        },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
+        "visualization": "table"
+      },
+      "name": "top-blob-ops"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Authentication & Access Failures"
+      },
+      "name": "auth-header"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Authentication failures across all storage services\nStorageBlobLogs\n| where TimeGenerated {timeRange}\n| where StatusCode == 403 or StatusCode == 401\n| summarize FailureCount = count() by CallerIpAddress, AuthenticationType, OperationName, AccountName\n| top 25 by FailureCount desc\n| project AccountName, Operation = OperationName, CallerIP = CallerIpAddress, AuthType = AuthenticationType, FailureCount\n",
+        "size": 0,
+        "title": "Authentication Failures (401/403)",
+        "timeContext": {
+          "durationMs": 86400000
+        },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
+        "visualization": "table"
+      },
+      "name": "auth-failures"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Anonymous access attempts\nStorageBlobLogs\n| where TimeGenerated {timeRange}\n| where AuthenticationType == 'anonymous'\n| summarize AnonymousRequests = count() by AccountName, CallerIpAddress, OperationName\n| top 20 by AnonymousRequests desc\n",
+        "size": 0,
+        "title": "Anonymous Access Attempts",
+        "timeContext": {
+          "durationMs": 86400000
+        },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
+        "visualization": "table"
+      },
+      "name": "anonymous-access"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Latency & Performance"
+      },
+      "name": "latency-header"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// End-to-end latency trend (P50, P95, P99)\nStorageBlobLogs\n| where TimeGenerated {timeRange}\n| where StatusCode >= 200 and StatusCode < 300\n| summarize\n    P50 = percentile(DurationMs, 50),\n    P95 = percentile(DurationMs, 95),\n    P99 = percentile(DurationMs, 99)\n    by bin(TimeGenerated, 1h)\n| order by TimeGenerated asc\n",
+        "size": 0,
+        "title": "Blob Latency Percentiles Over Time (P50 / P95 / P99)",
+        "timeContext": {
+          "durationMs": 86400000
+        },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
+        "visualization": "timechart"
+      },
+      "name": "blob-latency-trend"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Throttled requests (HTTP 429 / 503) over time\nStorageBlobLogs\n| where TimeGenerated {timeRange}\n| where StatusCode == 429 or StatusCode == 503\n| summarize ThrottledCount = count() by bin(TimeGenerated, 1h), AccountName\n| order by TimeGenerated asc\n",
+        "size": 0,
+        "title": "Throttled Requests (429 / 503) Over Time",
+        "timeContext": {
+          "durationMs": 86400000
+        },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
+        "visualization": "timechart"
+      },
+      "name": "throttled-requests"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Data Movement & Capacity"
+      },
+      "name": "capacity-header"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "// Data ingress/egress per account per hour\nStorageBlobLogs\n| where TimeGenerated {timeRange}\n| summarize\n    IngressMB = round(sum(RequestBodySize) / 1048576.0, 2),\n    EgressMB  = round(sum(ResponseBodySize) / 1048576.0, 2)\n    by bin(TimeGenerated, 1h), AccountName\n| order by TimeGenerated asc\n",
+        "size": 0,
+        "title": "Data Ingress / Egress per Account (MB)",
+        "timeContext": {
+          "durationMs": 86400000
+        },
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "__WORKSPACE_ID__"
+        ],
+        "visualization": "timechart"
+      },
+      "name": "data-movement"
+    }
+  ],
+  "fallbackResourceIds": [
+    "__WORKSPACE_ID__"
+  ],
+  "$schema": "https://github.com/Microsoft/Application-Insights-Workbooks/blob/master/schema/workbook.json"
+}
