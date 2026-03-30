@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from azure.core.exceptions import ClientAuthenticationError, HttpResponseError
 from azure.identity import DefaultAzureCredential
 from azure.mgmt.resource import ResourceManagementClient
+from azure.mgmt.subscription import SubscriptionClient
 
 # Regex for validating Azure subscription ID (UUID v4 format)
 _UUID_RE = re.compile(
@@ -171,7 +172,7 @@ def _check_network_posture(credential, subscription_id: str, resource_list: list
         except Exception:
             continue
 
-        pna = props.get("publicNetworkAccess", "").lower() if isinstance(props, dict) else ""
+        pna = (props.get("publicNetworkAccess") or "").lower() if isinstance(props, dict) else ""
         pe_connections = props.get("privateEndpointConnections", []) if isinstance(props, dict) else []
 
         entry = {
@@ -342,17 +343,135 @@ def scan_subscription(subscription_id: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Multi-subscription support
+# ---------------------------------------------------------------------------
+
+def list_tenant_subscriptions(credential=None) -> list[dict]:
+    """List all accessible subscriptions in the current tenant.
+
+    Returns a list of dicts with 'id', 'name', and 'state'.
+    """
+    if credential is None:
+        credential = DefaultAzureCredential()
+    client = SubscriptionClient(credential)
+    subs = []
+    for sub in client.subscriptions.list():
+        subs.append({
+            "id": sub.subscription_id,
+            "name": sub.display_name,
+            "state": str(sub.state) if sub.state else "unknown",
+        })
+    return subs
+
+
+def scan_multiple_subscriptions(subscription_ids: list[str]) -> dict:
+    """Scan multiple subscriptions and return a combined inventory.
+
+    Each subscription gets its own entry in the output. A merged summary
+    and combined feature flags are also generated.
+    """
+    credential = DefaultAzureCredential()
+    subscriptions: dict[str, dict] = {}
+    merged_resources: dict[str, list[dict]] = {}
+    merged_regions: set[str] = set()
+    merged_types: set[str] = set()
+    all_network_posture = {
+        "public_access_disabled": [],
+        "public_access_enabled": [],
+        "private_endpoint_connections": [],
+        "warnings": [],
+    }
+    all_amba_services: set[str] = set()
+    failed_subscriptions: list[dict] = []
+
+    for sub_id in subscription_ids:
+        print(f"\n--- Scanning subscription {sub_id} ---")
+        try:
+            inventory = scan_subscription(sub_id)
+            subscriptions[sub_id] = inventory
+
+            # Merge resources (prefix resource IDs already unique via ARM paths)
+            for category, res_list in inventory.get("resources", {}).items():
+                merged_resources.setdefault(category, []).extend(res_list)
+
+            # Merge summary data
+            summary = inventory.get("summary", {})
+            merged_regions.update(summary.get("regions", []))
+            merged_types.update(summary.get("resource_types_found", []))
+
+            # Merge network posture
+            posture = inventory.get("network_posture", {})
+            for key in all_network_posture:
+                all_network_posture[key].extend(posture.get(key, []))
+
+            # Merge AMBA services
+            flags = inventory.get("feature_flags", {})
+            all_amba_services.update(flags.get("amba_services", []))
+
+        except SystemExit:
+            # scan_subscription calls sys.exit on auth/permission errors
+            # Capture and continue to next subscription
+            failed_subscriptions.append({
+                "subscription_id": sub_id,
+                "error": "Authentication or permission error (see output above)",
+            })
+            print(f"  WARNING: Skipping subscription {sub_id} due to error.")
+
+    # Build merged feature flags
+    merged_total = sum(len(v) for v in merged_resources.values())
+    merged_feature_flags = {
+        "enable_aks": "aks_clusters" in merged_resources,
+        "enable_iot_hub": "iot_hubs" in merged_resources,
+        "enable_network_observability": bool(
+            NETWORK_CATEGORIES & set(merged_resources.keys())
+        ),
+        "enable_amba": merged_total > 0,
+        "enable_ampls": len(all_network_posture["public_access_disabled"]) > 0,
+        "amba_services": sorted(all_amba_services),
+    }
+
+    return {
+        "multi_subscription": True,
+        "subscription_ids": subscription_ids,
+        "scan_timestamp": datetime.now(timezone.utc).isoformat(),
+        "summary": {
+            "total_subscriptions": len(subscription_ids),
+            "successful_scans": len(subscriptions),
+            "failed_scans": len(failed_subscriptions),
+            "total_resources": merged_total,
+            "resource_types_found": sorted(merged_types),
+            "regions": sorted(merged_regions),
+        },
+        "subscriptions": subscriptions,
+        "merged_resources": merged_resources,
+        "network_posture": all_network_posture,
+        "feature_flags": merged_feature_flags,
+        "failed_subscriptions": failed_subscriptions,
+    }
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Scan an Azure subscription and inventory resources for the observability accelerator.",
+        description="Scan Azure subscription(s) and inventory resources for the observability accelerator.",
     )
-    parser.add_argument(
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument(
         "--subscription-id",
-        required=True,
-        help="Azure subscription ID to scan.",
+        help="Single Azure subscription ID to scan.",
+    )
+    group.add_argument(
+        "--subscription-ids",
+        help="Comma-separated list of subscription IDs to scan.",
+    )
+    group.add_argument(
+        "--tenant-scan",
+        action="store_true",
+        default=False,
+        help="Auto-discover and scan ALL accessible subscriptions in the tenant.",
     )
     parser.add_argument(
         "--output",
@@ -365,16 +484,74 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
 
-    print(f"Scanning subscription {args.subscription_id} ...")
-    inventory = scan_subscription(args.subscription_id)
+    # Determine which subscriptions to scan
+    if args.tenant_scan:
+        print("Discovering all subscriptions in tenant...")
+        try:
+            all_subs = list_tenant_subscriptions()
+        except ClientAuthenticationError as exc:
+            print("ERROR: Azure authentication failed.", file=sys.stderr)
+            print("       Run 'az login' to authenticate.", file=sys.stderr)
+            sys.exit(1)
+        except HttpResponseError as exc:
+            print(f"ERROR: Failed to list subscriptions: {exc.message}", file=sys.stderr)
+            sys.exit(1)
+
+        enabled_subs = [s for s in all_subs if s["state"] == "Enabled"]
+        print(f"Found {len(all_subs)} subscription(s), {len(enabled_subs)} enabled:")
+        for s in enabled_subs:
+            print(f"  {s['id']}  {s['name']}")
+
+        if not enabled_subs:
+            print("No enabled subscriptions found.")
+            sys.exit(0)
+
+        sub_ids = [s["id"] for s in enabled_subs]
+    elif args.subscription_ids:
+        sub_ids = [s.strip() for s in args.subscription_ids.split(",") if s.strip()]
+    else:
+        sub_ids = [args.subscription_id]
+
+    # Single subscription: use existing flow
+    if len(sub_ids) == 1:
+        print(f"Scanning subscription {sub_ids[0]} ...")
+        inventory = scan_subscription(sub_ids[0])
+    else:
+        print(f"\nScanning {len(sub_ids)} subscription(s)...")
+        inventory = scan_multiple_subscriptions(sub_ids)
 
     with open(args.output, "w", encoding="utf-8") as fh:
         json.dump(inventory, fh, indent=2)
 
+    # --- Print summary ---------------------------------------------------
     summary = inventory["summary"]
-    print(f"Scan complete. {summary['total_resources']} resource(s) found "
-          f"across {len(summary['regions'])} region(s).")
-    print(f"Categories: {', '.join(summary['resource_types_found']) or '(none)'}")
+    is_multi = inventory.get("multi_subscription", False)
+
+    if is_multi:
+        print(f"\n{'=' * 70}")
+        print(f"  MULTI-SUBSCRIPTION SCAN COMPLETE")
+        print(f"{'=' * 70}")
+        print(f"  Subscriptions scanned: {summary['successful_scans']}/{summary['total_subscriptions']}")
+        if summary["failed_scans"] > 0:
+            print(f"  Failed:                {summary['failed_scans']}")
+            for f in inventory.get("failed_subscriptions", []):
+                print(f"    - {f['subscription_id']}: {f['error']}")
+
+        print(f"  Total resources:       {summary['total_resources']}")
+        print(f"  Regions:               {', '.join(summary['regions']) or '(none)'}")
+        print(f"  Resource types:        {', '.join(summary['resource_types_found']) or '(none)'}")
+
+        # Per-subscription breakdown
+        print(f"\n  Per-subscription breakdown:")
+        for sub_id, sub_data in inventory.get("subscriptions", {}).items():
+            sub_summary = sub_data.get("summary", {})
+            print(f"    {sub_id}: {sub_summary.get('total_resources', 0)} resources, "
+                  f"{', '.join(sub_summary.get('resource_types_found', [])) or '(none)'}")
+
+    else:
+        print(f"Scan complete. {summary['total_resources']} resource(s) found "
+              f"across {len(summary['regions'])} region(s).")
+        print(f"Categories: {', '.join(summary['resource_types_found']) or '(none)'}")
 
     # --- Network posture report ------------------------------------------
     posture = inventory.get("network_posture", {})
