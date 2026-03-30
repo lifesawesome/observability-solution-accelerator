@@ -7,11 +7,18 @@ Usage:
 
 import argparse
 import json
+import re
 import sys
 from datetime import datetime, timezone
 
+from azure.core.exceptions import ClientAuthenticationError, HttpResponseError
 from azure.identity import DefaultAzureCredential
 from azure.mgmt.resource import ResourceManagementClient
+
+# Regex for validating Azure subscription ID (UUID v4 format)
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE
+)
 
 # ---------------------------------------------------------------------------
 # Azure resource-type -> accelerator category mapping
@@ -32,13 +39,28 @@ RESOURCE_TYPE_MAP: dict[str, str] = {
     "microsoft.network/loadbalancers": "load_balancers",
     "microsoft.network/applicationgateways": "application_gateways",
     "microsoft.network/virtualnetworks": "virtual_networks",
+    "microsoft.network/privateendpoints": "private_endpoints",
     "microsoft.databricks/workspaces": "databricks",
     "microsoft.logic/workflows": "logic_apps",
 }
 
+# Resource types that support publicNetworkAccess property inspection
+# Maps resource type -> Azure CLI command prefix for detailed query
+NETWORK_INSPECTABLE_TYPES: set[str] = {
+    "microsoft.storage/storageaccounts",
+    "microsoft.keyvault/vaults",
+    "microsoft.sql/servers",
+    "microsoft.documentdb/databaseaccounts",
+    "microsoft.devices/iothubs",
+    "microsoft.eventhub/namespaces",
+    "microsoft.containerservice/managedclusters",
+    "microsoft.web/sites",
+    "microsoft.databricks/workspaces",
+}
+
 # All recognised categories (used to seed the output dict so every key exists)
 ALL_CATEGORIES = sorted(
-    set(RESOURCE_TYPE_MAP.values()) | {"function_apps"}
+    set(RESOURCE_TYPE_MAP.values()) | {"function_apps", "private_endpoints"}
 )
 
 # Network-related categories that drive the network-observability feature flag
@@ -114,6 +136,81 @@ def _serialise_resource(resource) -> dict:
     }
 
 
+def _check_network_posture(credential, subscription_id: str, resource_list: list) -> dict:
+    """Check publicNetworkAccess and private endpoint connections for inspectable resources.
+
+    Uses the generic ARM GET to read each resource's properties, avoiding the need
+    for service-specific SDK clients.
+    """
+    from azure.mgmt.resource import ResourceManagementClient as _RMC
+
+    client = _RMC(credential, subscription_id)
+    posture: dict[str, list[dict]] = {
+        "public_access_disabled": [],
+        "public_access_enabled": [],
+        "private_endpoint_connections": [],
+        "warnings": [],
+    }
+
+    for res in resource_list:
+        res_type = (res.type or "").lower()
+        if res_type not in NETWORK_INSPECTABLE_TYPES:
+            continue
+
+        try:
+            # Use generic GET to fetch full resource properties
+            full_resource = client.resources.get_by_id(res.id, api_version="2023-01-01")
+            props = full_resource.properties or {}
+        except HttpResponseError:
+            # Some resources need a different API version; try a newer one
+            try:
+                full_resource = client.resources.get_by_id(res.id, api_version="2024-01-01")
+                props = full_resource.properties or {}
+            except Exception:
+                continue
+        except Exception:
+            continue
+
+        pna = props.get("publicNetworkAccess", "").lower() if isinstance(props, dict) else ""
+        pe_connections = props.get("privateEndpointConnections", []) if isinstance(props, dict) else []
+
+        entry = {
+            "id": res.id,
+            "name": res.name,
+            "type": res.type,
+            "resource_group": _resource_group_from_id(res.id or ""),
+            "public_network_access": pna or "unknown",
+        }
+
+        if pna in ("disabled", "denied"):
+            posture["public_access_disabled"].append(entry)
+            if not pe_connections:
+                posture["warnings"].append({
+                    "resource": res.name,
+                    "type": res.type,
+                    "issue": "public_access_disabled_no_private_endpoint",
+                    "message": (
+                        f"'{res.name}' has publicNetworkAccess=Disabled but no private "
+                        f"endpoint connections. Diagnostic logs may not flow to Log Analytics "
+                        f"unless Azure trusted services bypass is enabled."
+                    ),
+                })
+        else:
+            posture["public_access_enabled"].append(entry)
+
+        if pe_connections:
+            for pe in pe_connections:
+                pe_props = pe.get("properties", {}) if isinstance(pe, dict) else {}
+                posture["private_endpoint_connections"].append({
+                    "resource_name": res.name,
+                    "resource_type": res.type,
+                    "pe_id": pe.get("id", ""),
+                    "status": pe_props.get("privateLinkServiceConnectionState", {}).get("status", "unknown"),
+                })
+
+    return posture
+
+
 # ---------------------------------------------------------------------------
 # Core scanning logic
 # ---------------------------------------------------------------------------
@@ -121,14 +218,78 @@ def _serialise_resource(resource) -> dict:
 def scan_subscription(subscription_id: str) -> dict:
     """Authenticate, enumerate resources, and return the inventory dict."""
 
-    credential = DefaultAzureCredential()
+    # --- Validate subscription ID format ---------------------------------
+    if not _UUID_RE.match(subscription_id):
+        print("ERROR: Invalid subscription ID format.", file=sys.stderr)
+        print(f"       Received: '{subscription_id}'", file=sys.stderr)
+        print("       Expected: a UUID like 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx'", file=sys.stderr)
+        sys.exit(1)
+
+    # --- Authenticate ----------------------------------------------------
+    try:
+        credential = DefaultAzureCredential()
+    except ClientAuthenticationError as exc:
+        print("ERROR: Azure authentication failed.", file=sys.stderr)
+        print("       Could not obtain credentials for Azure.", file=sys.stderr)
+        print("", file=sys.stderr)
+        print("  How to fix:", file=sys.stderr)
+        print("    1. Run 'az login' to authenticate with Azure CLI, OR", file=sys.stderr)
+        print("    2. Set environment variables for a service principal:", file=sys.stderr)
+        print("         AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET", file=sys.stderr)
+        print("    3. If running in Azure, ensure a managed identity is configured.", file=sys.stderr)
+        print("", file=sys.stderr)
+        print(f"  Azure error: {exc.message}", file=sys.stderr)
+        sys.exit(1)
+
     client = ResourceManagementClient(credential, subscription_id)
 
     # Seed every category with an empty list
     resources: dict[str, list[dict]] = {cat: [] for cat in ALL_CATEGORIES}
     regions: set[str] = set()
 
-    for res in client.resources.list():
+    # --- List resources (with permission checks) -------------------------
+    try:
+        resource_iterator = client.resources.list()
+        # Force the first page to surface auth/permission errors early
+        resource_list = list(resource_iterator)
+    except ClientAuthenticationError as exc:
+        print("ERROR: Azure authentication failed when listing resources.", file=sys.stderr)
+        print("       Your credentials may have expired or lack permissions.", file=sys.stderr)
+        print("", file=sys.stderr)
+        print("  How to fix:", file=sys.stderr)
+        print("    1. Run 'az login' to re-authenticate, OR", file=sys.stderr)
+        print("    2. Check your service principal credentials are valid.", file=sys.stderr)
+        print("", file=sys.stderr)
+        print(f"  Azure error: {exc.message}", file=sys.stderr)
+        sys.exit(1)
+    except HttpResponseError as exc:
+        status = exc.status_code
+        if status == 403:
+            print("ERROR: Access denied (HTTP 403 Forbidden).", file=sys.stderr)
+            print(f"       You do not have permission to list resources in subscription '{subscription_id}'.", file=sys.stderr)
+            print("", file=sys.stderr)
+            print("  Required role: 'Reader' on the subscription.", file=sys.stderr)
+            print("", file=sys.stderr)
+            print("  How to fix (run as a subscription Owner or User Access Admin):", file=sys.stderr)
+            print(f"    az role assignment create \\" , file=sys.stderr)
+            print(f"      --assignee <YOUR_USER_OR_SP_OBJECT_ID> \\" , file=sys.stderr)
+            print(f"      --role 'Reader' \\" , file=sys.stderr)
+            print(f"      --scope '/subscriptions/{subscription_id}'", file=sys.stderr)
+        elif status == 404:
+            print("ERROR: Subscription not found (HTTP 404).", file=sys.stderr)
+            print(f"       The subscription '{subscription_id}' does not exist or is not accessible.", file=sys.stderr)
+            print("", file=sys.stderr)
+            print("  Check that:", file=sys.stderr)
+            print("    - The subscription ID is correct.", file=sys.stderr)
+            print("    - Your account has access (run 'az account list' to verify).", file=sys.stderr)
+        else:
+            print(f"ERROR: Azure API returned HTTP {status}.", file=sys.stderr)
+            print(f"       {exc.message}", file=sys.stderr)
+        print("", file=sys.stderr)
+        print(f"  Azure error: {exc.message}", file=sys.stderr)
+        sys.exit(1)
+
+    for res in resource_list:
         category = _classify_resource(res)
         if category is None:
             continue
@@ -143,7 +304,14 @@ def scan_subscription(subscription_id: str) -> dict:
     types_found = sorted(resources.keys())
     sorted_regions = sorted(regions)
 
+    # --- network posture scan --------------------------------------------
+    print("Checking network posture (publicNetworkAccess, private endpoints)...")
+    network_posture = _check_network_posture(credential, subscription_id, resource_list)
+
     # --- feature flags ---------------------------------------------------
+    has_private_restrictions = len(network_posture["public_access_disabled"]) > 0
+    has_private_endpoints = len(network_posture["private_endpoint_connections"]) > 0
+
     feature_flags: dict[str, object] = {
         "enable_aks": "aks_clusters" in resources,
         "enable_iot_hub": "iot_hubs" in resources,
@@ -151,6 +319,7 @@ def scan_subscription(subscription_id: str) -> dict:
             NETWORK_CATEGORIES & set(resources.keys())
         ),
         "enable_amba": total > 0,
+        "enable_ampls": has_private_restrictions,
         "amba_services": sorted(
             AMBA_SERVICE_MAP[cat]
             for cat in types_found
@@ -167,6 +336,7 @@ def scan_subscription(subscription_id: str) -> dict:
             "regions": sorted_regions,
         },
         "resources": resources,
+        "network_posture": network_posture,
         "feature_flags": feature_flags,
     }
 
@@ -205,7 +375,34 @@ def main(argv: list[str] | None = None) -> None:
     print(f"Scan complete. {summary['total_resources']} resource(s) found "
           f"across {len(summary['regions'])} region(s).")
     print(f"Categories: {', '.join(summary['resource_types_found']) or '(none)'}")
-    print(f"Output written to {args.output}")
+
+    # --- Network posture report ------------------------------------------
+    posture = inventory.get("network_posture", {})
+    disabled_count = len(posture.get("public_access_disabled", []))
+    enabled_count = len(posture.get("public_access_enabled", []))
+    pe_count = len(posture.get("private_endpoint_connections", []))
+    warnings = posture.get("warnings", [])
+
+    print(f"\nNetwork posture:")
+    print(f"  Public access enabled:  {enabled_count} resource(s)")
+    print(f"  Public access disabled: {disabled_count} resource(s)")
+    print(f"  Private endpoints:      {pe_count} connection(s)")
+
+    if warnings:
+        print(f"\n{'!' * 70}")
+        print(f"  NETWORK WARNINGS ({len(warnings)})")
+        print(f"{'!' * 70}")
+        for w in warnings:
+            print(f"\n  [{w['type']}] {w['resource']}")
+            print(f"    {w['message']}")
+        print(f"\n{'!' * 70}")
+        if inventory["feature_flags"].get("enable_ampls"):
+            print("  Recommendation: Deploy with enable_ampls=true for private link")
+            print("  connectivity, or ensure 'Allow trusted Microsoft services' is")
+            print("  enabled on each locked-down resource.")
+        print(f"{'!' * 70}")
+
+    print(f"\nOutput written to {args.output}")
 
 
 if __name__ == "__main__":

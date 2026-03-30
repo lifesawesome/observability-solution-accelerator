@@ -2,19 +2,31 @@
 """
 Observability Solution Accelerator — One-Command Experience
 
-Usage:
-    python accelerator.py --subscription-id <SUB_ID> --customer-name <NAME> --resource-group <RG>
+Customer Journey:
+  Step 1 (Discovery Only — no infra, no cost):
+    python accelerator.py --subscription-id <SUB_ID> --customer-name <NAME> --discovery-only
 
-This script orchestrates the full accelerator pipeline:
-  1. Scans the Azure subscription to discover all resources
-  2. Generates Azure Workbook JSON files based on discovered resources
-  3. Generates a Terraform .tfvars file with auto-detected feature flags
-  4. Optionally runs terraform init + plan + apply
+    What happens:
+      a. Authenticates to Azure (az login required)
+      b. Scans every resource in the subscription
+      c. Checks network posture (publicNetworkAccess, private endpoints)
+      d. Generates workbook JSON dashboards for discovered resource types
+      e. Prints a full report: resources, network warnings, recommended flags
+
+  Step 2 (Deploy — creates Log Analytics + wires diagnostics + dashboards):
+    python accelerator.py --subscription-id <SUB_ID> --customer-name <NAME> \\
+      --resource-group <RG> --skip-discovery
+
+    What happens:
+      a. Reads existing discovery output (from Step 1)
+      b. Generates Terraform .tfvars with auto-detected feature flags
+      c. Generates diagnostic settings config for each discovered resource
+      d. Runs terraform init → plan → apply
 
 Prerequisites:
   - Azure CLI authenticated (az login)
   - Python packages: pip install -r discovery/requirements.txt
-  - Terraform >= 1.5.0 (for deploy step)
+  - Terraform >= 1.5.0 (for Step 2 only)
 """
 
 import argparse
@@ -32,14 +44,16 @@ INFRA_DIR = ROOT_DIR / "infra"
 GENERATED_DIR = ROOT_DIR / "generated-workbooks"
 
 
-def run_cmd(cmd, description, dry_run=False):
+def run_cmd(cmd, description, dry_run=False, capture_stderr=False):
     """Run a shell command and stream output."""
     print(f"\n{'[DRY RUN] ' if dry_run else ''}>>> {description}")
     print(f"    $ {' '.join(cmd)}")
     if dry_run:
-        return 0
-    result = subprocess.run(cmd, cwd=str(ROOT_DIR))
-    return result.returncode
+        return 0, ""
+    stderr_pipe = subprocess.PIPE if capture_stderr else None
+    result = subprocess.run(cmd, cwd=str(ROOT_DIR), stderr=stderr_pipe)
+    stderr_text = (result.stderr or b"").decode("utf-8", errors="replace") if capture_stderr else ""
+    return result.returncode, stderr_text
 
 
 def step_discover(args):
@@ -55,9 +69,15 @@ def step_discover(args):
         "--subscription-id", args.subscription_id,
         "--output", discovery_output,
     ]
-    rc = run_cmd(cmd, "Scanning subscription for resources...", args.dry_run)
+    rc, stderr = run_cmd(cmd, "Scanning subscription for resources...", args.dry_run, capture_stderr=True)
     if rc != 0 and not args.dry_run:
-        print("ERROR: Discovery scan failed. Check Azure CLI authentication.")
+        print("\nERROR: Discovery scan failed.")
+        if stderr:
+            print("\n--- scan_subscription.py error output ---")
+            print(stderr.rstrip())
+            print("--- end error output ---")
+        else:
+            print("       Check Azure CLI authentication (run 'az login').")
         return None
     return discovery_output
 
@@ -78,7 +98,7 @@ def step_generate_workbooks(args, discovery_file, workspace_id):
         "--output-dir", output_dir,
         "--customer-name", args.customer_name,
     ]
-    rc = run_cmd(cmd, "Generating workbook templates...", args.dry_run)
+    rc, _ = run_cmd(cmd, "Generating workbook templates...", args.dry_run)
     if rc != 0 and not args.dry_run:
         print("ERROR: Workbook generation failed.")
         return None
@@ -132,6 +152,7 @@ def step_generate_tfvars(args, discovery_file, workbook_dir):
         f'enable_aks                  = {str(flags.get("enable_aks", False)).lower()}',
         f'enable_amba                 = {str(flags.get("enable_amba", False)).lower()}',
         f'enable_workbooks            = {str(len(workbook_files) > 0).lower()}',
+        f'enable_ampls                = {str(flags.get("enable_ampls", False)).lower()}',
         f'',
     ]
 
@@ -150,6 +171,73 @@ def step_generate_tfvars(args, discovery_file, workbook_dir):
         lines.append('}')
         lines.append('')
 
+    # --- Build diagnostic settings maps from discovered resources ---------
+    # Map category -> default log categories for diagnostic settings
+    diag_category_defaults = {
+        "key_vaults": ["AuditEvent", "AzurePolicyEvaluationDetails"],
+        "storage_accounts": ["StorageRead", "StorageWrite", "StorageDelete"],
+        "sql_databases": ["SQLSecurityAuditEvents", "AutomaticTuning", "QueryStoreRuntimeStatistics"],
+        "cosmos_db": ["DataPlaneRequests", "QueryRuntimeStatistics", "PartitionKeyStatistics"],
+        "function_apps": ["FunctionAppLogs"],
+        "app_services": ["AppServiceHTTPLogs", "AppServiceConsoleLogs", "AppServiceAppLogs"],
+        "iot_hubs": ["Connections", "DeviceTelemetry", "Routes"],
+        "event_hubs": ["ArchiveLogs", "OperationalLogs", "AutoScaleLogs"],
+        "logic_apps": ["WorkflowRuntime"],
+        "network_security_groups": ["NetworkSecurityGroupEvent", "NetworkSecurityGroupRuleCounter"],
+        "load_balancers": ["LoadBalancerAlertEvent", "LoadBalancerProbeHealthStatus"],
+        "application_gateways": ["ApplicationGatewayAccessLog", "ApplicationGatewayPerformanceLog"],
+    }
+
+    diag_resource_ids = {}
+    diag_log_categories = {}
+    resources = discovery.get("resources", {})
+    for category, res_list in resources.items():
+        if category not in diag_category_defaults:
+            continue
+        for res_entry in res_list:
+            # Use a safe key: name with category prefix to avoid collisions
+            key = f"{category}-{res_entry['name']}".replace("/", "-")
+            diag_resource_ids[key] = res_entry["id"]
+            diag_log_categories[key] = diag_category_defaults[category]
+
+    if diag_resource_ids:
+        lines.append('# --- Diagnostic Settings (auto-populated from discovery) ---')
+        lines.append('diagnostic_resource_ids = {')
+        for key, rid in diag_resource_ids.items():
+            lines.append(f'  "{key}" = "{rid}"')
+        lines.append('}')
+        lines.append('')
+        lines.append('diagnostic_log_categories = {')
+        for key, cats in diag_log_categories.items():
+            cats_str = ", ".join(f'"{c}"' for c in cats)
+            lines.append(f'  "{key}" = [{cats_str}]')
+        lines.append('}')
+        lines.append('')
+
+    # --- AMPLS note (if enabled, user must provide subnet/vnet) -----------
+    if flags.get("enable_ampls"):
+        lines.append('# --- AMPLS: Requires subnet and VNet IDs ---')
+        lines.append('# Uncomment and fill in to enable private link connectivity:')
+        lines.append('# ampls_subnet_id = "/subscriptions/.../subnets/ampls-subnet"')
+        lines.append('# ampls_vnet_id   = "/subscriptions/.../virtualNetworks/your-vnet"')
+        lines.append('')
+
+    # --- Network posture summary as comments ------------------------------
+    posture = discovery.get("network_posture", {})
+    if posture:
+        disabled = posture.get("public_access_disabled", [])
+        warnings = posture.get("warnings", [])
+        if disabled:
+            lines.append(f'# --- Network Posture: {len(disabled)} resource(s) have publicNetworkAccess=Disabled ---')
+            for d in disabled:
+                lines.append(f'#   {d["name"]} ({d["type"]})')
+            lines.append('')
+        if warnings:
+            lines.append(f'# --- Network Warnings ---')
+            for w in warnings:
+                lines.append(f'#   WARNING: {w["message"]}')
+            lines.append('')
+
     # Write .tfvars
     tfvars_content = "\n".join(lines) + "\n"
     with open(tfvars_path, "w") as f:
@@ -158,6 +246,7 @@ def step_generate_tfvars(args, discovery_file, workbook_dir):
     print(f"    Generated: {tfvars_path}")
     print(f"    Feature flags: {json.dumps(flags, indent=2)}")
     print(f"    Workbooks: {len(workbook_files)} files mapped")
+    print(f"    Diagnostic settings: {len(diag_resource_ids)} resources wired")
 
     return str(tfvars_path)
 
@@ -171,7 +260,7 @@ def step_terraform(args, tfvars_path):
     tfvars_file = os.path.basename(tfvars_path)
 
     # terraform init
-    rc = run_cmd(
+    rc, _ = run_cmd(
         ["terraform", "init"],
         "Initializing Terraform...",
         args.dry_run,
@@ -181,7 +270,7 @@ def step_terraform(args, tfvars_path):
         return False
 
     # terraform plan
-    rc = run_cmd(
+    rc, _ = run_cmd(
         ["terraform", "plan", f"-var-file={tfvars_file}", "-out=accelerator.tfplan"],
         "Planning deployment...",
         args.dry_run,
@@ -196,7 +285,7 @@ def step_terraform(args, tfvars_path):
         return True
 
     # terraform apply
-    rc = run_cmd(
+    rc, _ = run_cmd(
         ["terraform", "apply", "accelerator.tfplan"],
         "Applying infrastructure...",
         args.dry_run,
@@ -214,39 +303,54 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
+  # Discovery only — no infra required, just scan resources + generate workbooks
+  python accelerator.py --subscription-id <SUB_ID> --customer-name contoso --discovery-only
+
   # Full pipeline (discover → generate → plan only)
-  python accelerator.py --subscription-id abc-123 --customer-name contoso --resource-group rg-contoso-obs
+  python accelerator.py --subscription-id <SUB_ID> --customer-name contoso --resource-group rg-contoso-obs
 
   # Full pipeline with auto-deploy
-  python accelerator.py --subscription-id abc-123 --customer-name contoso --resource-group rg-contoso-obs --auto-approve
+  python accelerator.py --subscription-id <SUB_ID> --customer-name contoso --resource-group rg-contoso-obs --auto-approve
 
   # Dry run (preview all commands without executing)
-  python accelerator.py --subscription-id abc-123 --customer-name contoso --resource-group rg-contoso-obs --dry-run
+  python accelerator.py --subscription-id <SUB_ID> --customer-name contoso --resource-group rg-contoso-obs --dry-run
 
   # Skip discovery (use existing discovery file)
-  python accelerator.py --subscription-id abc-123 --customer-name contoso --resource-group rg-contoso-obs --skip-discovery
+  python accelerator.py --subscription-id <SUB_ID> --customer-name contoso --resource-group rg-contoso-obs --skip-discovery
         """,
     )
 
     parser.add_argument("--subscription-id", required=True, help="Azure subscription ID")
     parser.add_argument("--customer-name", required=True, help="Customer name (lowercase, no spaces)")
-    parser.add_argument("--resource-group", required=True, help="Azure resource group name")
+    parser.add_argument("--resource-group", default=None, help="Azure resource group name (required unless --discovery-only)")
     parser.add_argument("--location", default="westus2", help="Azure region (default: westus2)")
     parser.add_argument("--auto-approve", action="store_true", help="Auto-approve terraform apply")
     parser.add_argument("--dry-run", action="store_true", help="Preview commands without executing")
     parser.add_argument("--skip-discovery", action="store_true", help="Skip discovery, use existing discovered-resources.json")
-    parser.add_argument("--skip-terraform", action="store_true", help="Only run discovery + workbook generation")
+    parser.add_argument("--discovery-only", action="store_true", help="Only scan resources and generate workbooks (no infra deployment)")
+    parser.add_argument("--skip-terraform", action="store_true", dest="discovery_only", help=argparse.SUPPRESS)  # backward compat alias
 
     args = parser.parse_args()
+
+    # Validate: --resource-group is required unless --discovery-only
+    if not args.discovery_only and not args.resource_group:
+        parser.error("--resource-group is required unless --discovery-only is specified.")
+
+    # Default resource-group for discovery-only (used in workspace ID placeholder)
+    if not args.resource_group:
+        args.resource_group = f"rg-{args.customer_name}-obs"
+
+    mode = "DISCOVERY ONLY" if args.discovery_only else ("DRY RUN" if args.dry_run else "LIVE")
 
     print("=" * 70)
     print("  OBSERVABILITY SOLUTION ACCELERATOR")
     print("=" * 70)
     print(f"  Subscription:    {args.subscription_id}")
     print(f"  Customer:        {args.customer_name}")
-    print(f"  Resource Group:  {args.resource_group}")
-    print(f"  Region:          {args.location}")
-    print(f"  Mode:            {'DRY RUN' if args.dry_run else 'LIVE'}")
+    if not args.discovery_only:
+        print(f"  Resource Group:  {args.resource_group}")
+        print(f"  Region:          {args.location}")
+    print(f"  Mode:            {mode}")
     print("=" * 70)
 
     # Step 1: Discovery
@@ -270,26 +374,75 @@ Examples:
     if workbook_dir is None:
         sys.exit(1)
 
+    # --- Discovery-only mode: stop here, show report ---------------------
+    if args.discovery_only:
+        print("\n" + "=" * 70)
+        print("  DISCOVERY COMPLETE — No infrastructure was deployed")
+        print("=" * 70)
+
+        if not args.dry_run and Path(discovery_file).exists():
+            with open(discovery_file) as f:
+                discovery = json.load(f)
+            summary = discovery.get("summary", {})
+            flags = discovery.get("feature_flags", {})
+
+            print(f"\n  Resources found:  {summary.get('total_resources', 0)}")
+            print(f"  Regions:          {', '.join(summary.get('regions', [])) or '(none)'}")
+            print(f"  Resource types:   {', '.join(summary.get('resource_types_found', [])) or '(none)'}")
+            print(f"\n  Auto-detected feature flags:")
+            for flag_name in ['enable_aks', 'enable_iot_hub', 'enable_network_observability', 'enable_amba', 'enable_ampls']:
+                print(f"    {flag_name}: {flags.get(flag_name, False)}")
+            amba = flags.get('amba_services', [])
+            if amba:
+                print(f"    amba_services: {', '.join(amba)}")
+
+            # Network posture summary
+            posture = discovery.get("network_posture", {})
+            if posture:
+                disabled = posture.get("public_access_disabled", [])
+                enabled = posture.get("public_access_enabled", [])
+                pe_conns = posture.get("private_endpoint_connections", [])
+                warnings = posture.get("warnings", [])
+
+                print(f"\n  Network posture:")
+                print(f"    Public access enabled:  {len(enabled)} resource(s)")
+                print(f"    Public access disabled: {len(disabled)} resource(s)")
+                print(f"    Private endpoints:      {len(pe_conns)} connection(s)")
+
+                if warnings:
+                    print(f"\n  {'!' * 60}")
+                    print(f"  NETWORK WARNINGS ({len(warnings)}):")
+                    for w in warnings:
+                        print(f"    - {w['resource']}: {w['message']}")
+                    print(f"  {'!' * 60}")
+                    print(f"\n  Diagnostic logs will still flow via Azure trusted")
+                    print(f"  service bypass. For full private link, deploy with")
+                    print(f"  enable_ampls=true and provide subnet/vnet IDs.")
+
+        print(f"\n  Generated files:")
+        print(f"    Discovery:  {discovery_file}")
+        print(f"    Workbooks:  {workbook_dir}/")
+
+        print(f"\n  To deploy infrastructure (Step 2):")
+        print(f"    python accelerator.py \\")
+        print(f"      --subscription-id {args.subscription_id} \\")
+        print(f"      --customer-name {args.customer_name} \\")
+        print(f"      --resource-group <RESOURCE_GROUP> \\")
+        print(f"      --skip-discovery")
+        print("=" * 70)
+        return
+
+    # --- Full deploy mode: generate tfvars + run terraform ---------------
+
     # Step 3: Generate .tfvars
     tfvars_path = step_generate_tfvars(args, discovery_file, workbook_dir)
     if tfvars_path is None:
         sys.exit(1)
 
     # Step 4: Terraform
-    if args.skip_terraform:
-        print("\n  Skipping Terraform (--skip-terraform). Files generated:")
-        print(f"    Discovery:  {discovery_file}")
-        print(f"    Workbooks:  {workbook_dir}/")
-        print(f"    Terraform:  {tfvars_path}")
-        print(f"\n  Next steps:")
-        print(f"    cd infra")
-        print(f"    terraform init")
-        print(f"    terraform plan -var-file={os.path.basename(tfvars_path)}")
-        print(f"    terraform apply -var-file={os.path.basename(tfvars_path)}")
-    else:
-        success = step_terraform(args, tfvars_path)
-        if not success:
-            sys.exit(1)
+    success = step_terraform(args, tfvars_path)
+    if not success:
+        sys.exit(1)
 
     print("\n" + "=" * 70)
     print("  ACCELERATOR COMPLETE")

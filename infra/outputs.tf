@@ -67,3 +67,18 @@ output "workbook_count" {
   description = "Number of workbooks deployed"
   value       = var.enable_workbooks ? module.workbooks[0].workbook_count : 0
 }
+
+output "ampls_id" {
+  description = "AMPLS resource ID (if deployed)"
+  value       = var.enable_ampls ? module.ampls[0].ampls_id : null
+}
+
+output "ampls_private_endpoint_ip" {
+  description = "AMPLS private endpoint IP (if deployed)"
+  value       = var.enable_ampls ? module.ampls[0].private_endpoint_ip : null
+}
+
+output "diagnostic_settings_count" {
+  description = "Number of diagnostic settings deployed on discovered resources"
+  value       = length(var.diagnostic_resource_ids) > 0 ? module.diagnostic_settings[0].diagnostic_count : 0
+}

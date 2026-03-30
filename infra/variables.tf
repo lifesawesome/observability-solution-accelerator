@@ -124,6 +124,43 @@ variable "aks_cluster_id" {
   default     = ""
 }
 
+# --- AMPLS (Azure Monitor Private Link Scope) ---
+variable "enable_ampls" {
+  description = "Deploy Azure Monitor Private Link Scope for private telemetry ingestion"
+  type        = bool
+  default     = false
+}
+
+variable "ampls_subnet_id" {
+  description = "Subnet ID for the AMPLS private endpoint (required when enable_ampls = true)"
+  type        = string
+  default     = ""
+}
+
+variable "ampls_vnet_id" {
+  description = "VNet ID for DNS zone linking (required when enable_ampls = true)"
+  type        = string
+  default     = ""
+}
+
+variable "ampls_ingestion_access_mode" {
+  description = "AMPLS ingestion access: Open (public + private) or PrivateOnly (zero-trust)"
+  type        = string
+  default     = "Open"
+}
+
+variable "ampls_query_access_mode" {
+  description = "AMPLS query access: Open (public + private) or PrivateOnly (zero-trust)"
+  type        = string
+  default     = "Open"
+}
+
+variable "ampls_create_dns_zones" {
+  description = "Create private DNS zones for AMPLS (false if managed externally)"
+  type        = bool
+  default     = true
+}
+
 # --- Lighthouse ---
 variable "lighthouse_hub_tenant_id" {
   description = "Hub tenant ID for Lighthouse delegation"
@@ -206,6 +243,19 @@ variable "enable_workbooks" {
 variable "workbook_files" {
   description = "Map of workbook display name to local JSON file path (populated by discovery/generate_workbooks.py)"
   type        = map(string)
+  default     = {}
+}
+
+# --- Diagnostic Settings (populated by accelerator.py from discovery) ---
+variable "diagnostic_resource_ids" {
+  description = "Map of resource display name to ARM resource ID for diagnostic settings"
+  type        = map(string)
+  default     = {}
+}
+
+variable "diagnostic_log_categories" {
+  description = "Map of resource display name to list of log categories to collect"
+  type        = map(list(string))
   default     = {}
 }
 

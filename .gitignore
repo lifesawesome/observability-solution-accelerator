@@ -11,8 +11,18 @@ Thumbs.db
 # Azure / Terraform
 *.tfstate
 *.tfstate.backup
+*.tfplan
 .terraform/
 *.tfvars
+*.auto.tfvars
+
+# Discovery / generated output (customer-specific, never commit)
+discovery/discovered-resources.json
+generated-workbooks/
+
+# Python
+**/__pycache__/
+*.pyc
 
 # Build
 *.log

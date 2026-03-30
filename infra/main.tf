@@ -178,6 +178,28 @@ module "aks_observability" {
 }
 
 # ============================================================================
+# AMPLS: Azure Monitor Private Link Scope (optional)
+# Enables private connectivity for Log Analytics + App Insights
+# Auto-detected by discovery scanner when resources have publicNetworkAccess=Disabled
+# ============================================================================
+module "ampls" {
+  source = "./modules/ampls"
+  count  = var.enable_ampls ? 1 : 0
+
+  resource_group_name      = data.azurerm_resource_group.main.name
+  location                 = var.location
+  ampls_name               = "ampls-${var.customer_name}-obs"
+  workspace_id             = module.log_analytics.workspace_id
+  app_insights_ids         = { for k, v in module.app_insights : k => v.id }
+  subnet_id                = var.ampls_subnet_id
+  vnet_id                  = var.ampls_vnet_id
+  ingestion_access_mode    = var.ampls_ingestion_access_mode
+  query_access_mode        = var.ampls_query_access_mode
+  create_private_dns_zones = var.ampls_create_dns_zones
+  tags                     = local.common_tags
+}
+
+# ============================================================================
 # Layer 4: Auto-Generated Workbooks (optional)
 # ============================================================================
 # Deploy workbooks from the generated-workbooks/ directory.
@@ -193,4 +215,19 @@ module "workbooks" {
   workspace_id        = module.log_analytics.workspace_id
   workbook_files      = var.workbook_files
   tags                = local.common_tags
+}
+
+# ============================================================================
+# Diagnostic Settings — Wire discovered resources to Log Analytics
+# Auto-populated from discovery scan; sends logs + metrics from each resource
+# ============================================================================
+module "diagnostic_settings" {
+  source = "./modules/diagnostic-settings"
+  count  = length(var.diagnostic_resource_ids) > 0 ? 1 : 0
+
+  resource_group_name         = data.azurerm_resource_group.main.name
+  workspace_id                = module.log_analytics.workspace_id
+  customer_name               = var.customer_name
+  resource_ids                = var.diagnostic_resource_ids
+  log_categories_per_resource = var.diagnostic_log_categories
 }
