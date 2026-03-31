@@ -66,11 +66,11 @@ Each customer gets an isolated spoke workspace. Your managed service hub provide
 
 | Folder | Contents |
 |--------|----------|
-| `accelerator.py` | **One-command CLI** — discover, generate, deploy |
-| `discovery/` | Resource scanner, workbook generator, deployer scripts |
+| `accelerator.py` | **One-command CLI** — discover, provision, generate, deploy |
+| `discovery/` | Resource scanner (`scan_subscription.py`), workbook generator (`generate_workbooks.py`), deployer (`deploy_workbooks.py`) |
 | `infra/` | Terraform root config (`main.tf`, `variables.tf`, `outputs.tf`, `providers.tf`) |
-| `infra/modules/` | Terraform modules for each Azure component |
-| `dashboards/workbooks/` | Pre-built + auto-generated Azure Workbook JSON templates |
+| `infra/modules/` | Terraform modules: log-analytics-spoke, sentinel, app-insights, alert-rules, action-groups, amba-alerts, aks-observability, iot-hub, lighthouse, network-observability, workbooks, policy-initiative, diagnostic-settings, ampls, fabric-workspace |
+| `dashboards/workbooks/` | 15 pre-built Azure Workbook JSON templates (VM, K8s, IoT, App, Network, Storage, Key Vault, SQL, Cosmos DB, Logic App, infra health, cost, security, performance, MTTI/MTTR) |
 | `dashboards/powerbi/` | Power BI templates for OT observability |
 | `automation/runbooks/` | Azure Automation runbooks for L0 remediation |
 | `automation/logic-apps/` | Logic App templates for ServiceNow integration |
@@ -87,11 +87,10 @@ The fastest way to deploy. The accelerator **auto-discovers** your Azure resourc
 
 | Requirement | Details |
 |------------|---------|
-| **Python** | >= 3.9 with pip |
-| **Terraform** | >= 1.5.0 ([install guide](https://developer.hashicorp.com/terraform/install)) |
+| **Python** | >= 3.10 with pip |
 | **Azure CLI** | Latest version, authenticated (`az login`) |
 | **Azure Subscription** | With **Contributor** + **User Access Administrator** roles |
-| **Resource Group** | Pre-created in your target region |
+| **Terraform** | >= 1.5.0 — *only needed for full deploy mode, not discovery-only* |
 
 ### One-Command Deploy
 
@@ -102,10 +101,30 @@ cd observability-solution-accelerator
 # Install Python dependencies
 pip install -r discovery/requirements.txt
 
-# Create the resource group
-az group create --name rg-contoso-obs --location westus2
+# Run the accelerator — discovers resources, creates RG & workspace, generates and deploys workbooks
+python accelerator.py \
+  --subscription-id "your-subscription-id" \
+  --customer-name "contoso" \
+  --location "westus2" \
+  --discovery-only
+```
 
-# Run the accelerator (discovers resources → generates workbooks → deploys)
+> **No pre-created resources needed.** The accelerator auto-creates the resource group (`rg-contoso-obs`) and Log Analytics workspace (`la-contoso-obs`) for you.
+
+This single command will:
+1. **Scan** your subscription and inventory all resources (VMs, AKS, IoT, App Services, databases, networking, etc.)
+2. **Detect network posture** — identifies publicly accessible resources and private endpoint coverage
+3. **Auto-create** the resource group and Log Analytics workspace
+4. **Generate** type-specific Azure Workbooks based on discovered resources
+5. **Deploy** all generated workbooks to your workspace automatically
+
+Add `--resource-group "my-custom-rg"` to override the default resource group name.
+
+### Full Deploy (Terraform)
+
+For the complete stack (Sentinel, alerts, policies, automation), use full deploy mode:
+
+```bash
 python accelerator.py \
   --subscription-id "your-subscription-id" \
   --customer-name "contoso" \
@@ -113,28 +132,61 @@ python accelerator.py \
   --location "westus2"
 ```
 
-This single command will:
-1. **Scan** your subscription and inventory all resources (VMs, AKS, IoT, App Services, databases, etc.)
-2. **Auto-detect** which features to enable (AKS monitoring, IoT Hub, network observability, AMBA alerts)
-3. **Generate** type-specific Azure Workbooks based on discovered resources
-4. **Create** a Terraform `.tfvars` file with all settings pre-configured
-5. **Run** `terraform plan` to preview the deployment
-
-Add `--auto-approve` to deploy without review, or `--dry-run` to preview all steps.
+This runs discovery, generates a `.tfvars` file, and executes `terraform plan`. Add `--auto-approve` to deploy without review, or `--dry-run` to preview all steps.
 
 ### What Gets Auto-Generated
 
 | Discovered Resources | Auto-Generated Workbook | Terraform Feature |
 |---------------------|------------------------|-------------------|
-| VMs, VMSS | VM Logs Dashboard (CPU, memory, disk, events) | `enable_amba = true` |
-| AKS Clusters | K8s Logs Dashboard (pods, containers, nodes) | `enable_aks = true` |
-| IoT Hubs | IoT Logs Dashboard (device health, telemetry) | `enable_iot_hub = true` |
-| App Services, Functions | Application Logs Dashboard (errors, latency) | App Insights apps detected |
-| NSGs, VNets, Load Balancers | Network Logs Dashboard (flows, connectivity) | `enable_network_observability = true` |
+| VMs, VMSS | VM Logs (CPU, memory, disk, events) | `enable_amba = true` |
+| AKS Clusters | K8s Logs (pods, containers, nodes) | `enable_aks = true` |
+| IoT Hubs | IoT Logs (device health, telemetry) | `enable_iot_hub = true` |
+| App Services, Functions | Application Logs (errors, latency, traces) | App Insights apps detected |
+| NSGs, VNets, Load Balancers | Network Logs (flows, connectivity) | `enable_network_observability = true` |
+| Storage Accounts | Storage Logs (blob/queue/table operations, latency) | Diagnostic settings |
+| Key Vaults | Key Vault Logs (access, secrets, certificates) | Diagnostic settings |
+| SQL Databases | SQL Logs (DTU, connections, deadlocks) | Diagnostic settings |
+| Cosmos DB Accounts | Cosmos DB Logs (RU consumption, latency, errors) | Diagnostic settings |
+| Logic Apps | Logic App Logs (run history, failures, latency) | Diagnostic settings |
+| *(all resources)* | Infrastructure Health (cross-resource health overview) | — |
+| *(all resources)* | Cost & Usage (resource costs, trends) | — |
+| *(all resources)* | App Performance (request rate, response time, failures) | — |
+| *(Sentinel enabled)* | Security Posture (incidents, alerts, compliance) | `enable_sentinel = true` |
+
+### Multi-Subscription Scanning
+
+Scan multiple subscriptions in a single run, or auto-discover all subscriptions in your tenant:
+
+```bash
+# Scan specific subscriptions
+python accelerator.py \
+  --subscription-ids "sub-id-1,sub-id-2,sub-id-3" \
+  --customer-name "contoso" \
+  --discovery-only
+
+# Auto-discover and scan all subscriptions in the tenant
+python accelerator.py \
+  --tenant-scan \
+  --customer-name "contoso" \
+  --discovery-only
+```
+
+Multi-subscription mode merges all discovered resources into a single inventory and generates one unified set of workbooks.
+
+### Network Posture Detection
+
+The discovery scan automatically checks every resource for:
+
+- **Public network access** — flags resources with `publicNetworkAccess` enabled
+- **Private endpoint coverage** — detects whether private endpoints are configured
+
+The output includes a `network_posture` section per subscription with counts of public-facing vs. private resources. Use this to prioritize security hardening before or alongside the observability rollout.
 
 ---
 
 ## Manual Deployment Guide
+
+> **Recommended**: Run `--discovery-only` mode first to get instant workbooks and visibility before committing to a full Terraform deployment.
 
 If you prefer full control, you can manually create a `.tfvars` file and deploy step by step.
 
@@ -302,13 +354,12 @@ With just the 3 required values + defaults, you get:
 | Alert Rules | 5 | Heartbeat loss, app errors, disk, memory, CPU anomaly |
 | Azure Policy Assignments | 6 | Auto-deploy AMA + associate DCRs to all VMs |
 | Network Watcher | 1 | Network observability baseline |
-| Azure Workbooks | 1-5 | **Auto-generated** from discovery (VM, Network, App, K8s, IoT) |
+| Azure Workbooks | up to 11 | **Auto-generated and deployed** from discovery (VM, Network, App, K8s, IoT, Storage, Key Vault, SQL, Cosmos DB, Logic App, infra health, cost, security, performance) |
 
 ### Post-Deploy Steps (Optional)
 
 | Task | How | When |
 |------|-----|------|
-| Import Azure Workbooks | Upload JSON from `dashboards/workbooks/` via Azure Portal | After deploy |
 | Deploy Logic Apps | Use ARM templates from `automation/logic-apps/` | If using ServiceNow |
 | Register Runbooks | Import `.ps1` from `automation/runbooks/` into Azure Automation | For L0 auto-remediation |
 | Instrument Apps | Follow guides in `docs/instrumentation/` (Java, .NET, Node.js, Python) | When onboarding apps |
@@ -325,6 +376,70 @@ With just the 3 required values + defaults, you get:
 terraform destroy -var-file=contoso.tfvars
 az group delete --name rg-contoso-obs --yes
 ```
+
+## Customer Onboarding Process
+
+Step-by-step process to onboard a new customer onto the observability platform.
+
+### Step 1: Discovery (Day 1)
+
+Run the accelerator in discovery-only mode to scan the customer's environment and deploy instant dashboards:
+
+```bash
+# Single subscription
+python accelerator.py \
+  --subscription-id "customer-sub-id" \
+  --customer-name "acme" \
+  --discovery-only
+
+# Or scan all subscriptions in their tenant
+python accelerator.py \
+  --tenant-scan \
+  --customer-name "acme" \
+  --discovery-only
+```
+
+**Output**: Resource inventory JSON (`discovery-output.json`), network posture report, up to 11 workbooks auto-deployed.
+
+### Step 2: Review Discovery Results
+
+1. Open the generated workbooks in Azure Portal → Monitor → Workbooks
+2. Review network posture — prioritize resources with public access enabled
+3. Check `discovery-output.json` for resource categories found and feature flags detected
+4. Share the workbook screenshots with the customer as immediate value
+
+### Step 3: Full Foundation Deploy (Week 1-2)
+
+Once the customer approves, deploy the full stack:
+
+```bash
+python accelerator.py \
+  --subscription-id "customer-sub-id" \
+  --customer-name "acme" \
+  --resource-group "rg-acme-obs" \
+  --location "westus2" \
+  --auto-approve
+```
+
+This adds: Sentinel, alert rules, action groups, policies (AMA auto-enrollment), data collection rules, and network observability.
+
+### Step 4: Configure Integrations (Week 2-3)
+
+| Integration | How |
+|-------------|-----|
+| ServiceNow ITSM | Deploy Logic Apps from `automation/logic-apps/` → configure webhook URI |
+| Auto-Remediation | Import runbooks from `automation/runbooks/` → link to action groups |
+| Application Monitoring | Instrument apps using guides in `docs/instrumentation/` |
+| Lighthouse (if MSP) | Enable with `enable_lighthouse = true` for cross-tenant management |
+
+### Step 5: Validate and Tune (Week 3-4)
+
+1. Run the smoke test: `./tests/smoke-test.sh rg-acme-obs acme --sentinel`
+2. Inject test data: `python tests/inject-fake-data.py`
+3. Review alert noise and tune thresholds in `.tfvars`
+4. Review MTTI/MTTR workbook for baseline metrics
+
+See [docs/onboarding-playbook.md](docs/onboarding-playbook.md) and [docs/customer-onboarding.md](docs/customer-onboarding.md) for detailed guidance.
 
 ## Deployment Phases
 
